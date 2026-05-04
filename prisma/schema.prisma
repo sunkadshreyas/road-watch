@@ -1,0 +1,233 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  RESIDENT
+  GOV
+}
+
+enum RoadAssetType {
+  ROAD
+  FOOTPATH
+}
+
+enum IssueType {
+  POTHOLE
+  BROKEN_FOOTPATH
+  MISSING_STREET_LIGHT
+  UNAUTHORIZED_PARKING
+  VENDOR_ENCROACHMENT
+  FOOTPATH_BLOCKED
+}
+
+enum ObservationSource {
+  LIVE_CAMERA
+  WEB_SCRAPE
+  SATELLITE
+}
+
+enum HumanCheckStatus {
+  CLEARED
+  REJECTED
+  MANUAL_REVIEW
+}
+
+enum RepairStatus {
+  SCHEDULED
+  IN_PROGRESS
+  REPAIRED
+  MONITORING
+}
+
+enum VerificationVerdict {
+  FIX_HELD
+  FAILED
+  STILL_BROKEN
+}
+
+enum CommunityCategory {
+  DISCUSSION
+  APPRECIATION
+  SOLUTION
+}
+
+enum IssueVoteKind {
+  LIKE
+  DISLIKE
+}
+
+model Ward {
+  id              String      @id @default(cuid())
+  slug            String      @unique
+  name            String
+  city            String
+  summary         String
+  osmReference    String?
+  boundaryGeoJson String
+  centerLat       Float
+  centerLng       Float
+  roads           RoadAsset[]
+  users           User[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+model User {
+  id                  String               @id @default(cuid())
+  wardId              String
+  ward                Ward                 @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  email               String               @unique
+  name                String
+  publicLabel         String
+  role                UserRole             @default(RESIDENT)
+  discussions         CommunityEntry[]
+  observationReceipts ObservationReceipt[]
+  subscriptions       Subscription[]
+  recordedRepairs     RepairEvent[]
+  repairVerifications RepairVerification[]
+  issueClusterVotes   IssueClusterVote[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+}
+
+model RoadAsset {
+  id               String           @id @default(cuid())
+  wardId           String
+  ward             Ward             @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  slug             String           @unique
+  name             String
+  assetType        RoadAssetType
+  osmId            String
+  summary          String
+  geometryGeoJson  String
+  centerLat        Float
+  centerLng        Float
+  lengthMeters     Int
+  importanceScore  Int
+  surfaceLabel     String
+  observations     Observation[]
+  repairs          RepairEvent[]
+  communityEntries CommunityEntry[]
+  subscriptions    Subscription[]
+  issueClusterVotes IssueClusterVote[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([wardId, assetType])
+}
+
+model Observation {
+  id                 String            @id @default(cuid())
+  roadId             String
+  road               RoadAsset         @relation(fields: [roadId], references: [id], onDelete: Cascade)
+  issueType          IssueType
+  issueClusterKey    String
+  description        String
+  severityScore      Int
+  impactScore        Int
+  gpsLat             Float?
+  gpsLng             Float?
+  evidencePath       String
+  evidenceCapturedAt DateTime
+  source             ObservationSource @default(LIVE_CAMERA)
+  humanCheckStatus   HumanCheckStatus  @default(CLEARED)
+  receipts           ObservationReceipt[]
+  createdAt          DateTime          @default(now())
+
+  @@index([roadId, issueClusterKey])
+}
+
+model ObservationReceipt {
+  id            String      @id @default(cuid())
+  observationId String      @unique
+  observation   Observation @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model RepairEvent {
+  id              String               @id @default(cuid())
+  roadId          String
+  road            RoadAsset            @relation(fields: [roadId], references: [id], onDelete: Cascade)
+  issueClusterKey String
+  status          RepairStatus
+  note            String
+  proofImagePath  String?
+  costEstimateInr Int
+  recordedById    String
+  recordedBy      User                 @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  scheduledAt     DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime             @default(now())
+  verifications   RepairVerification[]
+
+  @@index([roadId, issueClusterKey])
+}
+
+model RepairVerification {
+  id          String              @id @default(cuid())
+  repairId    String
+  repair      RepairEvent         @relation(fields: [repairId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User                @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  verdict     VerificationVerdict
+  note        String
+  createdAt   DateTime            @default(now())
+
+  @@index([repairId, verdict])
+}
+
+model CommunityEntry {
+  id             String            @id @default(cuid())
+  roadId         String
+  road           RoadAsset         @relation(fields: [roadId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  category       CommunityCategory
+  title          String
+  body           String
+  agreementCount Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([roadId, category])
+}
+
+model Subscription {
+  id             String    @id @default(cuid())
+  token          String    @unique
+  roadId         String
+  road           RoadAsset @relation(fields: [roadId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  issueTypesJson String
+  eventTypesJson String
+  minSeverity    Int
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([roadId, userId])
+}
+
+model IssueClusterVote {
+  id              String        @id @default(cuid())
+  roadId          String
+  road            RoadAsset     @relation(fields: [roadId], references: [id], onDelete: Cascade)
+  issueClusterKey String
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind            IssueVoteKind
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([roadId, issueClusterKey, userId])
+  @@index([roadId, issueClusterKey, kind])
+}
