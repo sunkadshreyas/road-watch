@@ -506,6 +506,9 @@ export async function recordRepairAction(
   _previousState: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  let redirectTo: string | null = null;
+  let successState: ActionState | null = null;
+
   try {
     const user = await requireGovUser();
     const roadId = requiredString(formData, "roadId", "Road");
@@ -549,10 +552,14 @@ export async function recordRepairAction(
     revalidatePath(`/roads/${road.slug}/repairs/${clusterKey}`);
     revalidatePath("/account");
 
-    return {
+    successState = {
       status: "success",
       message: `${road.name} updated with a ${status.toLowerCase().replaceAll("_", " ")} event.`,
     };
+
+    if (status === "REPAIRED") {
+      redirectTo = `/roads/${road.slug}?section=history`;
+    }
   } catch (error) {
     return {
       status: "error",
@@ -560,6 +567,15 @@ export async function recordRepairAction(
         error instanceof Error ? error.message : "Unable to record the repair.",
     };
   }
+
+  if (redirectTo) {
+    redirect(redirectTo);
+  }
+
+  return successState ?? {
+    status: "error",
+    message: "Unable to record the repair.",
+  };
 }
 
 export async function verifyRepairAction(
