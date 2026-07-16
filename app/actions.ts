@@ -170,7 +170,13 @@ async function writeObservationImage(dataUrl: string, observationId: string) {
   const targetPath = join(uploadDir, filename);
 
   await mkdir(uploadDir, { recursive: true });
-  await writeFile(targetPath, buffer);
+
+  try {
+    await writeFile(targetPath, buffer);
+  } catch (error) {
+    await rm(targetPath, { force: true });
+    throw error;
+  }
 
   return {
     evidencePath: `/api/observations/${observationId}/evidence/${filename}`,
@@ -307,9 +313,13 @@ export async function createObservationAction(
     }
 
     const serverReceivedAt = new Date();
+    const observationId = randomUUID();
     let savedImagePath: string | null = null;
 
     try {
+      const savedImage = await writeObservationImage(imageData, observationId);
+      savedImagePath = savedImage.targetPath;
+
       await prisma.$transaction(async (transaction) => {
         const recentReceipts = await transaction.observationReceipt.findMany({
           where: {
@@ -344,9 +354,6 @@ export async function createObservationAction(
           );
         }
 
-        const observationId = randomUUID();
-        const savedImage = await writeObservationImage(imageData, observationId);
-        savedImagePath = savedImage.targetPath;
         const observation = await transaction.observation.create({
           data: {
             id: observationId,

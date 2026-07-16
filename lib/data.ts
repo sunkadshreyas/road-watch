@@ -1214,7 +1214,17 @@ export async function getMyComplaintDashboard(
   const complaints = receipts.map((receipt) => {
     const road = receipt.observation.road;
     const cachedClusters = clustersByRoadId.get(road.id);
-    const issueClusters = cachedClusters ?? buildIssueClusters(road, userId);
+    const issueClusters =
+      cachedClusters ??
+      buildIssueClusters(
+        {
+          ...road,
+          observations: road.observations.filter(
+            (observation) => observation.humanCheckStatus === "CLEARED",
+          ),
+        },
+        userId,
+      );
 
     if (!cachedClusters) {
       clustersByRoadId.set(road.id, issueClusters);

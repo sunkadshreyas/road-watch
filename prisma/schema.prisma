@@ -136,7 +136,7 @@ model Observation {
   evidencePath       String
   evidenceCapturedAt DateTime
   source             ObservationSource @default(LIVE_CAMERA)
-  humanCheckStatus   HumanCheckStatus  @default(CLEARED)
+  humanCheckStatus   HumanCheckStatus  @default(MANUAL_REVIEW)
   receipts           ObservationReceipt[]
   votes              ObservationVote[]
   createdAt          DateTime          @default(now())
