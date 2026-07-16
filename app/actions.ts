@@ -397,6 +397,7 @@ export async function createObservationAction(
     revalidatePath("/collection");
     revalidatePath("/my-complaints");
     revalidatePath("/leaderboard");
+    revalidatePath("/moderation");
 
     return {
       status: "success",
@@ -575,6 +576,7 @@ export async function moderateObservationAction(formData: FormData) {
   revalidatePath("/collection");
   revalidatePath("/my-complaints");
   revalidatePath("/leaderboard");
+  revalidatePath("/moderation");
 }
 
 export async function createCommunityEntryAction(

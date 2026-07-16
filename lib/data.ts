@@ -391,6 +391,29 @@ export type CollectorLeaderboard = {
   };
 };
 
+export type PendingModerationCapture = {
+  id: string;
+  roadSlug: string;
+  roadName: string;
+  assetLabel: string;
+  issueType: IssueType;
+  issueLabel: string;
+  severityScore: number;
+  severityBand: SeverityBand;
+  severityLabel: string;
+  description: string;
+  evidencePath: string;
+  gpsLat: number;
+  gpsLng: number;
+  submittedAt: string;
+  collectorLabel: string | null;
+};
+
+export type PendingModerationQueue = {
+  totalCount: number;
+  captures: PendingModerationCapture[];
+};
+
 export type ExportRow = {
   recordedAt: string;
   eventType: "observation" | "vote" | "repair" | "verification";
@@ -1061,6 +1084,52 @@ export async function getWardDashboard(): Promise<WardDashboard> {
           new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
       )
       .slice(0, 6),
+  };
+}
+
+export async function getPendingModerationQueue(): Promise<PendingModerationQueue> {
+  const observations = await prisma.observation.findMany({
+    where: {
+      humanCheckStatus: "MANUAL_REVIEW",
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+    include: {
+      road: true,
+      receipts: {
+        include: {
+          user: true,
+        },
+      },
+    },
+  });
+
+  const captures = observations.map((observation) => {
+    const severityBand = getSeverityBand(observation.severityScore);
+
+    return {
+      id: observation.id,
+      roadSlug: observation.road.slug,
+      roadName: observation.road.name,
+      assetLabel: roadAssetTypeMeta[observation.road.assetType].label,
+      issueType: observation.issueType,
+      issueLabel: issueTypeMeta[observation.issueType].label,
+      severityScore: observation.severityScore,
+      severityBand,
+      severityLabel: severityBandMeta[severityBand].label,
+      description: observation.description,
+      evidencePath: observation.evidencePath,
+      gpsLat: observation.gpsLat ?? observation.road.centerLat,
+      gpsLng: observation.gpsLng ?? observation.road.centerLng,
+      submittedAt: observation.createdAt.toISOString(),
+      collectorLabel: observation.receipts[0]?.user.publicLabel ?? null,
+    };
+  });
+
+  return {
+    totalCount: captures.length,
+    captures,
   };
 }
 
