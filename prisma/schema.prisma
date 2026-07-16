@@ -91,6 +91,7 @@ model User {
   recordedRepairs     RepairEvent[]
   repairVerifications RepairVerification[]
   issueClusterVotes   IssueClusterVote[]
+  observationVotes    ObservationVote[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 }
@@ -137,6 +138,7 @@ model Observation {
   source             ObservationSource @default(LIVE_CAMERA)
   humanCheckStatus   HumanCheckStatus  @default(CLEARED)
   receipts           ObservationReceipt[]
+  votes              ObservationVote[]
   createdAt          DateTime          @default(now())
 
   @@index([roadId, issueClusterKey])
@@ -230,4 +232,18 @@ model IssueClusterVote {
 
   @@unique([roadId, issueClusterKey, userId])
   @@index([roadId, issueClusterKey, kind])
+}
+
+model ObservationVote {
+  id            String        @id @default(cuid())
+  observationId String
+  observation   Observation   @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind          IssueVoteKind
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([observationId, userId])
+  @@index([observationId, kind])
 }

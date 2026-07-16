@@ -1,6 +1,6 @@
 'use server';
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -10,13 +10,15 @@ import { redirect } from "next/navigation";
 
 import {
   clearSessionUser,
-  getSessionUser,
   requireGovUser,
   requireResidentUser,
   requireUser,
   setSessionUser,
 } from "@/lib/auth";
 import { issueTypeMeta, issueTypeOptions, rssEventTypeOptions } from "@/lib/constants";
+import { hasRecentDuplicateCollection } from "@/lib/collection-moderation";
+import { getRoadProximityStatus, requireGpsPoint } from "@/lib/geo";
+import { decodeObservationImageDataUrl } from "@/lib/observation-evidence";
 import { prisma } from "@/lib/prisma";
 import { clamp, slugify } from "@/lib/utils";
 import type { ActionState } from "@/lib/action-state";
@@ -153,35 +155,27 @@ function deriveImpactScore(issueType: IssueType, severityScore: number) {
 function buildIssueClusterKey(
   roadSlug: string,
   issueType: IssueType,
-  gpsLat: number | null,
-  gpsLng: number | null,
+  gpsLat: number,
+  gpsLng: number,
 ) {
-  if (gpsLat != null && gpsLng != null) {
-    const roundedLat = gpsLat.toFixed(4);
-    const roundedLng = gpsLng.toFixed(4);
-    return slugify(`${roadSlug}-${issueType}-${roundedLat}-${roundedLng}`);
-  }
-
-  return slugify(`${roadSlug}-${issueType}-${Date.now()}`);
+  const roundedLat = gpsLat.toFixed(4);
+  const roundedLng = gpsLng.toFixed(4);
+  return slugify(`${roadSlug}-${issueType}-${roundedLat}-${roundedLng}`);
 }
 
-async function writeObservationImage(dataUrl: string) {
-  const match = dataUrl.match(/^data:image\/(jpeg|jpg|png);base64,(.+)$/);
-
-  if (!match) {
-    throw new Error("A live camera image is required.");
-  }
-
-  const extension = match[1] === "jpeg" ? "jpg" : match[1];
-  const payload = match[2];
-  const uploadDir = join(process.cwd(), "public", "uploads", "observations");
-  const filename = `${Date.now()}-${randomUUID()}.${extension}`;
+async function writeObservationImage(dataUrl: string, observationId: string) {
+  const { buffer, extension } = decodeObservationImageDataUrl(dataUrl);
+  const uploadDir = join(process.cwd(), "storage", "observations");
+  const filename = `${observationId}.${extension}`;
   const targetPath = join(uploadDir, filename);
 
   await mkdir(uploadDir, { recursive: true });
-  await writeFile(targetPath, Buffer.from(payload, "base64"));
+  await writeFile(targetPath, buffer);
 
-  return `/uploads/observations/${filename}`;
+  return {
+    evidencePath: `/api/observations/${observationId}/evidence/${filename}`,
+    targetPath,
+  };
 }
 
 async function writeUploadedImage(file: File, directory: string, label: string) {
@@ -220,6 +214,8 @@ async function getRoadForMutation(roadId: string) {
       id: true,
       slug: true,
       name: true,
+      centerLat: true,
+      centerLng: true,
     },
   });
 
@@ -266,11 +262,7 @@ export async function createObservationAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const sessionUser = await getSessionUser();
-
-    if (sessionUser?.role === "GOV") {
-      throw new Error("Government-labelled accounts cannot submit public observations.");
-    }
+    const sessionUser = await requireResidentUser();
 
     const roadId = requiredString(formData, "roadId", "Road");
     const description = requiredString(formData, "description", "Observation detail");
@@ -283,6 +275,14 @@ export async function createObservationAction(
     const capturedAt = optionalString(formData, "capturedAt");
     const gpsLat = optionalFloat(formData, "gpsLat");
     const gpsLng = optionalFloat(formData, "gpsLng");
+    const gpsPoint = requireGpsPoint(gpsLat, gpsLng);
+    const evidenceCapturedAt = capturedAt ? new Date(capturedAt) : new Date();
+    const confirmedDistantRoad =
+      optionalString(formData, "confirmedDistantRoad") === "true";
+
+    if (Number.isNaN(evidenceCapturedAt.getTime())) {
+      throw new Error("Capture time is invalid.");
+    }
 
     if (captureMode !== "live-camera") {
       throw new Error("Observations must come from the live camera flow.");
@@ -293,41 +293,107 @@ export async function createObservationAction(
     }
 
     const road = await getRoadForMutation(roadId);
-    const evidencePath = await writeObservationImage(imageData);
-
-    const observation = await prisma.observation.create({
-      data: {
-        roadId: road.id,
-        issueType,
-        issueClusterKey: buildIssueClusterKey(road.slug, issueType, gpsLat, gpsLng),
-        description,
-        severityScore,
-        impactScore,
-        gpsLat,
-        gpsLng,
-        evidencePath,
-        source: "LIVE_CAMERA",
-        humanCheckStatus: "CLEARED",
-        evidenceCapturedAt: capturedAt ? new Date(capturedAt) : new Date(),
-      },
+    const proximity = getRoadProximityStatus(gpsPoint, {
+      slug: road.slug,
+      name: road.name,
+      centerLat: road.centerLat,
+      centerLng: road.centerLng,
     });
 
-    if (sessionUser?.role === "RESIDENT") {
-      await prisma.observationReceipt.create({
-        data: {
-          observationId: observation.id,
-          userId: sessionUser.id,
-        },
+    if (!proximity.isNearby && !confirmedDistantRoad) {
+      throw new Error(
+        "Please confirm this violation belongs to the selected road before submitting.",
+      );
+    }
+
+    const serverReceivedAt = new Date();
+    let savedImagePath: string | null = null;
+
+    try {
+      await prisma.$transaction(async (transaction) => {
+        const recentReceipts = await transaction.observationReceipt.findMany({
+          where: {
+            userId: sessionUser.id,
+            observation: {
+              roadId: road.id,
+              createdAt: {
+                gte: new Date(serverReceivedAt.getTime() - 10 * 60 * 1000),
+              },
+            },
+          },
+          include: {
+            observation: true,
+          },
+        });
+        const isDuplicate = hasRecentDuplicateCollection({
+          issueType,
+          capturedAt: serverReceivedAt,
+          gpsLat: gpsPoint.lat,
+          gpsLng: gpsPoint.lng,
+          candidates: recentReceipts.map((receipt) => ({
+            issueType: receipt.observation.issueType,
+            capturedAt: receipt.observation.createdAt,
+            gpsLat: receipt.observation.gpsLat,
+            gpsLng: receipt.observation.gpsLng,
+          })),
+        });
+
+        if (isDuplicate) {
+          throw new Error(
+            "This looks like a duplicate of a violation you just collected nearby.",
+          );
+        }
+
+        const observationId = randomUUID();
+        const savedImage = await writeObservationImage(imageData, observationId);
+        savedImagePath = savedImage.targetPath;
+        const observation = await transaction.observation.create({
+          data: {
+            id: observationId,
+            roadId: road.id,
+            issueType,
+            issueClusterKey: buildIssueClusterKey(
+              road.slug,
+              issueType,
+              gpsPoint.lat,
+              gpsPoint.lng,
+            ),
+            description,
+            severityScore,
+            impactScore,
+            gpsLat: gpsPoint.lat,
+            gpsLng: gpsPoint.lng,
+            evidencePath: savedImage.evidencePath,
+            source: "LIVE_CAMERA",
+            humanCheckStatus: "MANUAL_REVIEW",
+            evidenceCapturedAt,
+          },
+        });
+
+        await transaction.observationReceipt.create({
+          data: {
+            observationId: observation.id,
+            userId: sessionUser.id,
+          },
+        });
       });
+    } catch (error) {
+      if (savedImagePath) {
+        await rm(savedImagePath, { force: true });
+      }
+
+      throw error;
     }
 
     revalidateRoadViews(road.slug);
     revalidatePath("/account");
+    revalidatePath("/collection");
     revalidatePath("/my-complaints");
+    revalidatePath("/leaderboard");
 
     return {
       status: "success",
-      message: `Observation added to ${road.name}.`,
+      message: `Violation collected on ${road.name}. +10 points added to your collection.`,
     };
   } catch (error) {
     return {
@@ -386,6 +452,124 @@ export async function voteOnIssueClusterAction(formData: FormData) {
   revalidatePath("/account");
 }
 
+export async function voteOnObservationAction(formData: FormData) {
+  const user = await requireResidentUser();
+  const observationId = requiredString(formData, "observationId", "Violation");
+  const voteKind = parseIssueVoteKind(formData);
+  const observation = await prisma.observation.findUnique({
+    where: {
+      id: observationId,
+    },
+    include: {
+      road: true,
+      receipts: true,
+    },
+  });
+
+  if (!observation) {
+    throw new Error("Violation not found.");
+  }
+
+  if (observation.humanCheckStatus !== "CLEARED") {
+    throw new Error("Only approved violations can receive votes.");
+  }
+
+  if (observation.receipts.some((receipt) => receipt.userId === user.id)) {
+    throw new Error("You cannot vote on a violation you collected.");
+  }
+
+  const existingVote = await prisma.observationVote.findUnique({
+    where: {
+      observationId_userId: {
+        observationId: observation.id,
+        userId: user.id,
+      },
+    },
+  });
+
+  if (existingVote?.kind === voteKind) {
+    await prisma.observationVote.delete({
+      where: {
+        id: existingVote.id,
+      },
+    });
+  } else {
+    await prisma.observationVote.upsert({
+      where: {
+        observationId_userId: {
+          observationId: observation.id,
+          userId: user.id,
+        },
+      },
+      create: {
+        observationId: observation.id,
+        userId: user.id,
+        kind: voteKind,
+      },
+      update: {
+        kind: voteKind,
+      },
+    });
+  }
+
+  revalidateRoadViews(observation.road.slug);
+  revalidatePath("/account");
+  revalidatePath("/collection");
+  revalidatePath("/my-complaints");
+  revalidatePath("/leaderboard");
+}
+
+export async function moderateObservationAction(formData: FormData) {
+  await requireGovUser();
+  const observationId = requiredString(formData, "observationId", "Violation");
+  const moderationStatus = requiredString(
+    formData,
+    "moderationStatus",
+    "Moderation decision",
+  );
+
+  if (moderationStatus !== "CLEARED" && moderationStatus !== "REJECTED") {
+    throw new Error("Moderation decision must approve or reject the capture.");
+  }
+
+  const observation = await prisma.observation.findUnique({
+    where: {
+      id: observationId,
+    },
+    include: {
+      road: true,
+    },
+  });
+
+  if (!observation) {
+    throw new Error("Violation not found.");
+  }
+
+  if (observation.humanCheckStatus !== "MANUAL_REVIEW") {
+    throw new Error("This violation has already been reviewed.");
+  }
+
+  const decision = await prisma.observation.updateMany({
+    where: {
+      id: observation.id,
+      humanCheckStatus: "MANUAL_REVIEW",
+    },
+    data: {
+      humanCheckStatus: moderationStatus,
+    },
+  });
+
+  if (decision.count !== 1) {
+    throw new Error("This violation has already been reviewed.");
+  }
+
+  revalidateRoadViews(observation.road.slug);
+  revalidatePath("/account");
+  revalidatePath("/collection");
+  revalidatePath("/my-complaints");
+  revalidatePath("/leaderboard");
+}
+
 export async function createCommunityEntryAction(
   _previousState: ActionState,
   formData: FormData,
@@ -437,7 +621,7 @@ export async function createSubscriptionAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const user = await requireUser();
+    const user = await requireResidentUser();
     const roadId = requiredString(formData, "roadId", "Road");
     const minSeverity = boundedInteger(
       formData,
@@ -489,7 +673,7 @@ export async function createSubscriptionAction(
 
     return {
       status: "success",
-      message: "RSS subscription saved to your account.",
+      message: "Road update subscription saved to your account.",
     };
   } catch (error) {
     return {

@@ -15,6 +15,8 @@
 
 # next.js
 /.next/
+/.next-roadwatch-*/
+/.roadwatch-tsconfig-*.json
 /out/
 
 # production
@@ -46,5 +48,6 @@ next-env.d.ts
 !/public/uploads/.gitkeep
 !/public/uploads/seed/
 !/public/uploads/seed/*
+/storage/observations/*
 /dev.db*
 /prisma/dev.db*

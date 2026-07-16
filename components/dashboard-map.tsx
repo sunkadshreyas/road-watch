@@ -95,12 +95,14 @@ export function DashboardMap({
 
     mapRef.current = map;
 
-    map.addControl(
-      new maplibregl.NavigationControl({
-        showCompass: false,
-      }),
-      "top-right",
-    );
+    if (window.matchMedia("(min-width: 640px)").matches) {
+      map.addControl(
+        new maplibregl.NavigationControl({
+          showCompass: false,
+        }),
+        "top-right",
+      );
+    }
     map.addControl(new maplibregl.AttributionControl({ compact: true }));
 
     map.on("load", () => {

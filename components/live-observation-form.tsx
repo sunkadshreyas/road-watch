@@ -1,12 +1,16 @@
 'use client';
 
-import { useActionState, useEffect, useEffectEvent, useRef, useState } from "react";
+import { useActionState, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { Camera, Crosshair, MapPin, RotateCcw, Trophy } from "lucide-react";
 
 import {
   createObservationAction,
 } from "@/app/actions";
 import { idleActionState } from "@/lib/action-state";
 import { issueTypeMeta, issueTypeOptions } from "@/lib/constants";
+import { getRoadProximityStatus, type ProximityStatus } from "@/lib/geo";
+import { replaceMediaStream, stopMediaStream } from "@/lib/media-stream";
 import { cn } from "@/lib/utils";
 
 import { SubmitButton } from "@/components/submit-button";
@@ -18,6 +22,8 @@ type Detector = {
 type LiveObservationFormProps = {
   roadId: string;
   roadName: string;
+  roadCenterLat: number;
+  roadCenterLng: number;
 };
 
 const severityOptions = [
@@ -51,6 +57,8 @@ function getCurrentPosition() {
 export function LiveObservationForm({
   roadId,
   roadName,
+  roadCenterLat,
+  roadCenterLng,
 }: LiveObservationFormProps) {
   const [state, action] = useActionState(createObservationAction, idleActionState);
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -58,23 +66,33 @@ export function LiveObservationForm({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const detectorRef = useRef<Detector | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const cameraRequestRef = useRef(0);
 
   const [cameraStatus, setCameraStatus] = useState<
     "idle" | "requesting" | "ready" | "blocked"
   >("idle");
   const [cameraNote, setCameraNote] = useState(
-    "Start the live camera to capture a road-only frame with GPS metadata.",
+    "Start the hunt to capture a road-only violation with GPS metadata.",
   );
   const [imageData, setImageData] = useState("");
   const [peopleDetected, setPeopleDetected] = useState(false);
   const [capturedAt, setCapturedAt] = useState("");
   const [gpsLat, setGpsLat] = useState("");
   const [gpsLng, setGpsLng] = useState("");
+  const [proximityStatus, setProximityStatus] = useState<ProximityStatus | null>(null);
+  const [confirmedDistantRoad, setConfirmedDistantRoad] = useState(false);
   const [severityScore, setSeverityScore] = useState(65);
   const [description, setDescription] = useState("");
   const isCameraReady = cameraStatus === "ready";
   const hasValidDescription = description.trim().length > 0;
-  const canSubmit = Boolean(imageData && hasValidDescription && !peopleDetected);
+  const needsDistanceConfirmation =
+    Boolean(proximityStatus) && proximityStatus?.isNearby === false;
+  const canSubmit = Boolean(
+    imageData &&
+      hasValidDescription &&
+      !peopleDetected &&
+      (!needsDistanceConfirmation || confirmedDistantRoad),
+  );
   const selectedSeverity =
     severityOptions.find((option) => option.value === severityScore) ?? severityOptions[1];
   const captureButtonLabel =
@@ -94,16 +112,20 @@ export function LiveObservationForm({
           ? "Blocked"
           : "Not started";
 
-  const stopStream = useEffectEvent(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-  });
+  const stopStream = useCallback(() => {
+    streamRef.current = replaceMediaStream(streamRef.current, null);
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
 
   useEffect(() => {
     return () => {
+      cameraRequestRef.current += 1;
       stopStream();
     };
-  }, []);
+  }, [stopStream]);
 
   useEffect(() => {
     if (state.status !== "success") {
@@ -117,9 +139,11 @@ export function LiveObservationForm({
       setCapturedAt("");
       setGpsLat("");
       setGpsLng("");
+      setProximityStatus(null);
+      setConfirmedDistantRoad(false);
       setSeverityScore(65);
       setDescription("");
-      setCameraNote("Observation saved. Capture another frame if you need to add a new issue.");
+      setCameraNote("Violation collected. Capture another frame if you see another issue.");
     });
 
     return () => {
@@ -134,37 +158,61 @@ export function LiveObservationForm({
       return;
     }
 
+    const requestId = cameraRequestRef.current + 1;
+    cameraRequestRef.current = requestId;
+    stopStream();
+    let acquiredStream: MediaStream | null = null;
+
     try {
       setCameraStatus("requesting");
       setCameraNote("Requesting camera access and loading the person-detection model.");
 
-      const [tfModule, cocoSsdModule, stream] = await Promise.all([
+      const [tfModule, cocoSsdModule] = await Promise.all([
         import("@tensorflow/tfjs"),
         import("@tensorflow-models/coco-ssd"),
-        navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        }),
       ]);
 
       await tfModule.ready();
       detectorRef.current ??= await cocoSsdModule.load();
-      streamRef.current = stream;
+
+      if (requestId !== cameraRequestRef.current) {
+        return;
+      }
+
+      acquiredStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
+
+      if (requestId !== cameraRequestRef.current) {
+        stopMediaStream(acquiredStream);
+        return;
+      }
+
+      streamRef.current = replaceMediaStream(streamRef.current, acquiredStream);
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        videoRef.current.srcObject = acquiredStream;
         await videoRef.current.play();
       }
 
       setCameraStatus("ready");
       setCameraNote("Live camera ready. Keep people out of frame and capture the issue directly.");
     } catch {
-      setCameraStatus("blocked");
-      setCameraNote("Camera access was blocked or unavailable. The live capture step cannot proceed.");
+      stopMediaStream(acquiredStream);
+
+      if (streamRef.current === acquiredStream) {
+        streamRef.current = null;
+      }
+
+      if (requestId === cameraRequestRef.current) {
+        setCameraStatus("blocked");
+        setCameraNote("Camera access was blocked or unavailable. The live capture step cannot proceed.");
+      }
     }
   }
 
@@ -184,8 +232,13 @@ export function LiveObservationForm({
         throw new Error("Canvas context unavailable.");
       }
 
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      const scale = Math.min(
+        1,
+        1280 / video.videoWidth,
+        720 / video.videoHeight,
+      );
+      canvas.width = Math.round(video.videoWidth * scale);
+      canvas.height = Math.round(video.videoHeight * scale);
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       const predictions = await detectorRef.current.detect(canvas);
@@ -199,16 +252,37 @@ export function LiveObservationForm({
         setCapturedAt("");
         setGpsLat("");
         setGpsLng("");
+        setProximityStatus(null);
+        setConfirmedDistantRoad(false);
         setCameraNote("Frame rejected because a person was detected. Reframe and capture again.");
         return;
       }
 
+      const proximity = getRoadProximityStatus(
+        {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        },
+        {
+          slug: roadId,
+          name: roadName,
+          centerLat: roadCenterLat,
+          centerLng: roadCenterLng,
+        },
+      );
+
       setPeopleDetected(false);
-      setImageData(canvas.toDataURL("image/jpeg", 0.88));
+      setImageData(canvas.toDataURL("image/jpeg", 0.82));
       setCapturedAt(new Date().toISOString());
       setGpsLat(String(position.coords.latitude));
       setGpsLng(String(position.coords.longitude));
-      setCameraNote("Frame locked with GPS metadata. You can now submit the anonymous observation.");
+      setProximityStatus(proximity);
+      setConfirmedDistantRoad(false);
+      setCameraNote(
+        proximity.isNearby
+          ? "Frame locked with GPS metadata. You can now add it to your collection."
+          : "Frame locked, but the GPS point is not close to the selected road.",
+      );
     } catch {
       setCameraNote("GPS permission is required. RoadWatch only accepts live frames with location attached.");
     }
@@ -219,22 +293,25 @@ export function LiveObservationForm({
       <div className="space-y-4 rounded-[1.75rem] border border-slate-200 bg-slate-950 p-4 text-white shadow-[0_18px_48px_-28px_rgba(15,23,42,0.6)]">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-300">
-              Live capture only
+            <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-teal-300">
+              <Crosshair className="h-4 w-4" aria-hidden="true" />
+              Capture encounter
             </p>
             <h3 className="mt-1 font-[family:var(--font-display)] text-2xl font-semibold">
               {roadName}
             </h3>
             <p className="mt-2 text-sm text-slate-300">
-              Step 1: enable camera. Step 2: allow camera and location. Step 3: capture the issue frame.
+              Start camera, allow location, then snap the violation when the frame is clear.
             </p>
           </div>
           <button
             type="button"
             onClick={startCamera}
-            className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/16"
+            disabled={cameraStatus === "requesting"}
+            className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/16"
           >
-            {cameraStatus === "ready" ? "Restart camera" : "Enable camera"}
+            <Camera className="h-4 w-4" aria-hidden="true" />
+            {cameraStatus === "ready" ? "Restart camera" : "Start hunt"}
           </button>
         </div>
 
@@ -280,6 +357,7 @@ export function LiveObservationForm({
             disabled={!isCameraReady}
             className="rounded-full bg-teal-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-teal-400 disabled:cursor-not-allowed disabled:bg-slate-600 disabled:text-slate-300"
           >
+            <Camera className="mr-2 inline h-4 w-4" aria-hidden="true" />
             {captureButtonLabel}
           </button>
           {imageData ? (
@@ -291,17 +369,36 @@ export function LiveObservationForm({
                 setCapturedAt("");
                 setGpsLat("");
                 setGpsLng("");
+                setProximityStatus(null);
+                setConfirmedDistantRoad(false);
                 setCameraNote("Retake the frame if the issue is not clear enough.");
               }}
-              className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+              className="inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
             >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
               Retake
             </button>
           ) : null}
         </div>
 
+        {proximityStatus ? (
+          <div
+            className={cn(
+              "rounded-[1.15rem] border px-4 py-3 text-sm",
+              proximityStatus.isNearby
+                ? "border-emerald-300 bg-emerald-400/10 text-emerald-100"
+                : "border-amber-300 bg-amber-400/10 text-amber-100",
+            )}
+          >
+            {proximityStatus.label}
+          </div>
+        ) : null}
+
         <div className="rounded-[1.25rem] border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-          <p>{cameraNote}</p>
+          <p className="flex items-start gap-2">
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-teal-300" aria-hidden="true" />
+            <span>{cameraNote}</span>
+          </p>
           <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-400">
             Gallery uploads are not available in this MVP.
           </p>
@@ -322,16 +419,13 @@ export function LiveObservationForm({
 
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Anonymous road record update
+            Encounter details
           </p>
           <h3 className="mt-1 font-[family:var(--font-display)] text-2xl font-semibold text-slate-950">
-            Add what happened
+            Log the violation
           </h3>
-          <p className="mt-2 text-sm text-slate-600">
-            No identity is attached to this observation. Only the road record, issue type, live image, GPS, and severity are stored.
-          </p>
           <p className="mt-2 text-sm font-medium text-slate-700">
-            A short written description is still required, even after you capture the image.
+            Keep the note short: what it is and where it sits.
           </p>
         </div>
 
@@ -344,6 +438,33 @@ export function LiveObservationForm({
             }`}
           >
             {state.message}
+            {state.status === "success" ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  href="/collection"
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-600"
+                >
+                  <Trophy className="h-4 w-4" aria-hidden="true" />
+                  My collection
+                </Link>
+                <Link
+                  href="/leaderboard"
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-50"
+                >
+                  <Trophy className="h-4 w-4" aria-hidden="true" />
+                  View leaderboard
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCameraNote("Ready for another nearby violation. Capture a fresh frame.");
+                  }}
+                  className="rounded-full border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-50"
+                >
+                  Collect another
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -399,18 +520,18 @@ export function LiveObservationForm({
 
         <label className="block space-y-2">
           <span className="flex items-center justify-between text-sm font-semibold text-slate-700">
-            <span>What is the issue on this road or footpath?</span>
+            <span>Quick note</span>
             <span className="text-xs uppercase tracking-[0.16em] text-rose-600">
               Required
             </span>
           </span>
           <span className="text-xs text-slate-500">
-            Example: `Deep pothole near bus stop causing swerves`.
+            Example: Deep pothole near bus stop.
           </span>
           <textarea
             name="description"
-            rows={5}
-            placeholder="Describe the exact problem, where it sits on the segment, and how it affects movement or safety."
+            rows={4}
+            placeholder="Describe the violation in one short note."
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             required
@@ -422,13 +543,31 @@ export function LiveObservationForm({
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
             {!imageData
               ? "Capture a live frame first."
-              : "Add a short description before submitting."}
+              : needsDistanceConfirmation && !confirmedDistantRoad
+                ? "Confirm that this capture belongs to the selected road before submitting."
+                : "Add a short description before submitting."}
           </div>
         ) : null}
 
+        {needsDistanceConfirmation ? (
+          <label className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <input
+              type="checkbox"
+              name="confirmedDistantRoad"
+              value="true"
+              checked={confirmedDistantRoad}
+              onChange={(event) => setConfirmedDistantRoad(event.target.checked)}
+              className="mt-1 h-4 w-4 accent-amber-700"
+            />
+            <span>
+              I confirm this violation belongs to {roadName}, even though the GPS point is not close to the selected road.
+            </span>
+          </label>
+        ) : null}
+
         <SubmitButton
-          label="Add to road record"
-          pendingLabel="Saving observation..."
+          label="Collect violation"
+          pendingLabel="Collecting violation..."
           className="w-full"
           disabled={!canSubmit}
         />

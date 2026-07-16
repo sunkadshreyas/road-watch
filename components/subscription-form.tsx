@@ -1,6 +1,8 @@
 'use client';
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
+import { Radio } from "lucide-react";
 
 import {
   createSubscriptionAction,
@@ -12,6 +14,13 @@ import { SubmitButton } from "@/components/submit-button";
 
 type SubscriptionFormProps = {
   roadId: string;
+};
+
+const eventTypeLabels: Record<(typeof rssEventTypeOptions)[number], string> = {
+  observation: "New violations",
+  vote: "Likes and disputes",
+  repair: "Repair updates",
+  verification: "Fix checks",
 };
 
 export function SubscriptionForm({ roadId }: SubscriptionFormProps) {
@@ -33,12 +42,23 @@ export function SubscriptionForm({ roadId }: SubscriptionFormProps) {
               : "bg-rose-50 text-rose-700 ring-1 ring-rose-200"
           }`}
         >
-          {state.message}
+          <div className="flex flex-col gap-3">
+            <span>{state.message}</span>
+            {state.status === "success" ? (
+              <Link
+                href="/account"
+                className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-600"
+              >
+                <Radio className="h-4 w-4" aria-hidden="true" />
+                Open RSS feed link
+              </Link>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
       <div>
-        <p className="text-sm font-semibold text-slate-700">Issue types</p>
+        <p className="text-sm font-semibold text-slate-700">Violation types</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {issueTypeOptions.map((issueType) => (
             <label
@@ -59,7 +79,7 @@ export function SubscriptionForm({ roadId }: SubscriptionFormProps) {
       </div>
 
       <div>
-        <p className="text-sm font-semibold text-slate-700">Feed events</p>
+        <p className="text-sm font-semibold text-slate-700">Road updates</p>
         <div className="mt-3 flex flex-wrap gap-2">
           {rssEventTypeOptions.map((eventType) => (
             <label
@@ -73,7 +93,7 @@ export function SubscriptionForm({ roadId }: SubscriptionFormProps) {
                 defaultChecked
                 className="h-4 w-4 accent-teal-700"
               />
-              {eventType}
+              {eventTypeLabels[eventType]}
             </label>
           ))}
         </div>
@@ -98,8 +118,8 @@ export function SubscriptionForm({ roadId }: SubscriptionFormProps) {
       </label>
 
       <SubmitButton
-        label="Save RSS settings"
-        pendingLabel="Saving feed..."
+        label="Subscribe to RSS feed"
+        pendingLabel="Saving updates..."
       />
     </form>
   );

@@ -46,10 +46,10 @@ export function RepairReviewBoard({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="eyebrow text-slate-500">
-            {userRole === "GOV" ? "Government review" : "Complaint and repair history"}
+            {userRole === "GOV" ? "Government review" : "Violation and repair history"}
           </p>
           <h3 className="mt-1 font-[family:var(--font-display)] text-3xl font-semibold text-slate-950">
-            Complaint queue by severity
+            Violation queue by severity
           </h3>
         </div>
         <p className="max-w-xl text-sm leading-7 text-slate-600">
@@ -72,7 +72,7 @@ export function RepairReviewBoard({
                   {group.label} severity
                 </span>
                 <p className="text-sm text-slate-500">
-                  {group.clusters.length} complaint{group.clusters.length === 1 ? "" : "s"}
+                  {group.clusters.length} violation{group.clusters.length === 1 ? "" : "s"}
                 </p>
               </div>
 
@@ -158,7 +158,7 @@ export function RepairReviewBoard({
                               </>
                             ) : (
                               <p className="mt-2 text-sm text-slate-500">
-                                No repair update has been recorded for this complaint yet.
+                                No repair update has been recorded for this violation yet.
                               </p>
                             )}
                           </div>
@@ -166,7 +166,7 @@ export function RepairReviewBoard({
                           {userRole === "GOV" ? (
                             <div className="space-y-3">
                               <p className="text-sm font-semibold text-slate-900">
-                                Update this complaint
+                                Update this violation
                               </p>
                               <RepairUpdateForm roadId={roadId} cluster={cluster} />
                             </div>
@@ -190,13 +190,14 @@ export function RepairReviewBoard({
                         <div className="space-y-4">
                           <div className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white">
                             <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                              Complaint photo
+                              Violation photo
                             </div>
                             <Image
                               src={cluster.latestEvidencePath}
-                              alt={`${cluster.issueLabel} complaint on ${roadName}`}
+                              alt={`${cluster.issueLabel} violation on ${roadName}`}
                               width={1200}
                               height={900}
+                              unoptimized={cluster.latestEvidencePath.startsWith("/api/observations/")}
                               className="aspect-[4/3] h-full w-full object-cover"
                               sizes="(max-width: 1280px) 100vw, 320px"
                             />
@@ -222,7 +223,7 @@ export function RepairReviewBoard({
                             </div>
                           ) : (
                             <div className="rounded-[1.25rem] border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
-                              No repair proof is attached to this complaint yet.
+                              No repair proof is attached to this violation yet.
                             </div>
                           )}
                         </div>
@@ -235,7 +236,7 @@ export function RepairReviewBoard({
           ))
         ) : (
           <div className="rounded-[1.35rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-            No complaint history has been recorded on this road yet.
+            No violation history has been recorded on this road yet.
           </div>
         )}
       </div>

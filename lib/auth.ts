@@ -31,12 +31,24 @@ export async function requireUser() {
   return user;
 }
 
-export async function requireGovUser() {
-  const user = await requireUser();
+type AuthRole = "GOV" | "RESIDENT";
 
+export function assertGovRole(user: { role: AuthRole }) {
   if (user.role !== "GOV") {
     throw new Error("Only government-labelled accounts can record repairs.");
   }
+}
+
+export function assertResidentRole(user: { role: AuthRole }) {
+  if (user.role !== "RESIDENT") {
+    throw new Error("Only resident accounts can collect or vote on violations.");
+  }
+}
+
+export async function requireGovUser() {
+  const user = await requireUser();
+
+  assertGovRole(user);
 
   return user;
 }
@@ -44,9 +56,7 @@ export async function requireGovUser() {
 export async function requireResidentUser() {
   const user = await requireUser();
 
-  if (user.role !== "RESIDENT") {
-    throw new Error("Only resident accounts can vote on complaints.");
-  }
+  assertResidentRole(user);
 
   return user;
 }

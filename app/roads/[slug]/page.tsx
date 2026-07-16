@@ -1,6 +1,16 @@
 import Link from "next/link";
+import {
+  Database as DatabaseIcon,
+  History,
+  MapPin,
+  MessageCircle,
+  Radio,
+  Rss,
+  Wrench,
+} from "lucide-react";
 import { notFound } from "next/navigation";
 
+import { CollectedViolationList } from "@/components/collected-violation-list";
 import { CommunityComposer } from "@/components/community-composer";
 import { DashboardMap } from "@/components/dashboard-map";
 import { GovPendingComplaintList } from "@/components/gov-pending-complaint-list";
@@ -34,13 +44,23 @@ export default async function RoadDetailPage({
   const { slug } = await params;
   const resolvedSearchParams = await searchParams;
   const section = readSearchValue(resolvedSearchParams.section, "record");
-  const communityView = readSearchValue(resolvedSearchParams.community, "discussion");
+  const communityView = readSearchValue(
+    resolvedSearchParams.community,
+    "discussion",
+  );
   const user = await getSessionUser();
   const [road, dashboard] = await Promise.all([
-    getRoadDetail(slug, user?.id ?? null).catch(() => notFound()),
+    getRoadDetail(slug, user?.id ?? null, user?.role === "GOV").catch(() => notFound()),
     getWardDashboard(),
   ]);
 
+  const displayIssueClusters = road.issueClusters;
+  const pendingIssueClusters = road.issueClusters.filter((cluster) => cluster.state === "open");
+  const canSubmitObservation = user?.role === "RESIDENT";
+  const canVoteOnComplaints = user?.role === "RESIDENT";
+  const voteMessage = user?.role === "GOV"
+    ? "Government accounts cannot vote on violations."
+    : "Sign in as a resident to support this issue or flag it as false.";
   const communityCategory =
     communityView === "appreciation"
       ? "APPRECIATION"
@@ -51,58 +71,37 @@ export default async function RoadDetailPage({
     road.community.DISCUSSION.length +
     road.community.APPRECIATION.length +
     road.community.SOLUTION.length;
-  const displayIssueClusters = road.issueClusters;
-  const pendingIssueClusters = road.issueClusters.filter((cluster) => cluster.state === "open");
-  const canSubmitObservation = user?.role !== "GOV";
-  const canVoteOnComplaints = user?.role === "RESIDENT";
-  const voteMessage = user?.role === "GOV"
-    ? "Government accounts cannot vote on complaints."
-    : "Sign in as a resident to support this issue or flag it as false.";
   const dataPreview = {
     road: {
       name: road.name,
       slug: road.slug,
       assetType: road.assetType,
       openIssueCount: road.openIssueCount,
-      monitoringIssueCount: road.monitoringIssueCount,
       publicObservationCount: road.publicObservationCount,
       repairUpdateCount: road.repairs.length,
       communityNoteCount: communityCount,
       osmId: road.osmId,
     },
-    issueClusters: road.issueClusters.map((cluster) => ({
-      clusterKey: cluster.clusterKey,
-      issueType: cluster.issueType,
-      issueLabel: cluster.issueLabel,
-      severityBand: cluster.severityBand,
-      state: cluster.stateLabel,
-      severity: cluster.severityScore,
-      reportCount: cluster.recurrenceCount,
-      repairCount: cluster.repairCount,
-      lastUpdatedAt: cluster.lastUpdatedAt,
-      latestEvidencePath: cluster.latestEvidencePath,
-      latestDescription: cluster.latestDescription,
-      latestRepairStatus: cluster.latestRepairStatus,
-      latestRepairProofPath: cluster.latestRepairProofPath,
-      latestVerificationLabel: cluster.latestVerificationLabel,
-      likeCount: cluster.likeCount,
-      dislikeCount: cluster.dislikeCount,
+    collectedViolations: road.collectedViolations.map((violation) => ({
+      id: violation.id,
+      issue: violation.issueLabel,
+      severity: violation.severityScore,
+      likes: violation.likeCount,
+      dislikes: violation.dislikeCount,
+      state: violation.stateLabel,
+      collectedAt: violation.submittedAt,
     })),
     repairs: road.repairs.map((repair) => ({
       id: repair.id,
-      issueLabel: repair.issueLabel,
+      issue: repair.issueLabel,
       status: repair.statusLabel,
-      note: repair.note,
-      proofImagePath: repair.proofImagePath,
-      recordedByLabel: repair.recordedByLabel,
       recordedAt: repair.recordedAt,
-      completedAt: repair.completedAt,
-      verificationCount: repair.verifications.length,
+      proofImagePath: repair.proofImagePath,
     })),
   };
 
   const mapPanel = (
-    <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-5 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
+    <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-4 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
       <DashboardMap
         roads={dashboard.roads.map((item) => ({
           slug: item.slug,
@@ -123,135 +122,111 @@ export default async function RoadDetailPage({
 
   return (
     <div className="space-y-8">
-      <section className="grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
-        <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-6 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
-          <p className="eyebrow text-slate-500">
-            {road.wardName} · {road.city} · {road.assetLabel}
-          </p>
-          <h2 className="mt-2 font-[family:var(--font-display)] text-5xl font-semibold text-slate-950">
-            {road.name}
-          </h2>
-          <p className="mt-4 max-w-2xl text-base leading-8 text-slate-600">{road.summary}</p>
+      <section className="rounded-[2rem] border border-slate-200 bg-white/82 p-6 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
+        <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+          <MapPin className="h-4 w-4 text-teal-700" aria-hidden="true" />
+          {road.wardName} · {road.city} · {road.assetLabel}
+        </p>
+        <h2 className="mt-2 font-[family:var(--font-display)] text-4xl font-semibold text-slate-950 sm:text-5xl">
+          {road.name}
+        </h2>
+        <p className="mt-4 max-w-2xl text-base leading-8 text-slate-600">{road.summary}</p>
 
-          <div className="mt-6 flex flex-wrap gap-3">
-            {[
-              { id: "record", label: "Record" },
-              { id: "history", label: "History" },
-              { id: "community", label: "Community" },
-              { id: "data", label: "Data" },
-            ].map((tab) => (
+        <div className="mt-6 flex flex-wrap gap-3">
+          {[
+            { id: "record", label: "Sightings", icon: Radio },
+            { id: "history", label: user?.role === "GOV" ? "Repairs" : "Repair log", icon: History },
+            { id: "community", label: "Community", icon: MessageCircle },
+            { id: "data", label: "Data", icon: DatabaseIcon },
+          ].map((tab) => {
+            const Icon = tab.icon;
+
+            return (
               <Link
                 key={tab.id}
                 href={`/roads/${road.slug}?section=${tab.id}`}
                 className={cn(
-                  "rounded-full px-4 py-2 text-sm font-semibold transition",
+                  "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition",
                   section === tab.id
                     ? "bg-slate-950 text-white"
                     : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-white",
                 )}
               >
+                <Icon className="h-4 w-4" aria-hidden="true" />
                 {tab.label}
               </Link>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
-          <div className="rounded-[1.6rem] border border-slate-200 bg-white/82 p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.4)] backdrop-blur">
-            <p className="eyebrow text-slate-500">Open issues</p>
-            <p className="mt-2 font-[family:var(--font-display)] text-4xl font-semibold text-slate-950">
-              {road.openIssueCount}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              Current unresolved issue clusters on this record.
-            </p>
-          </div>
-          <div className="rounded-[1.6rem] border border-slate-200 bg-white/82 p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.4)] backdrop-blur">
-            <p className="eyebrow text-slate-500">Under monitoring</p>
-            <p className="mt-2 font-[family:var(--font-display)] text-4xl font-semibold text-slate-950">
-              {road.monitoringIssueCount}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              Repairs waiting for the public to confirm whether they held.
-            </p>
-          </div>
-          <div className="rounded-[1.6rem] border border-slate-200 bg-white/82 p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.4)] backdrop-blur">
-            <p className="eyebrow text-slate-500">Public observations</p>
-            <p className="mt-2 font-[family:var(--font-display)] text-4xl font-semibold text-slate-950">
-              {road.publicObservationCount}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              Anonymous reports already attached to this road or footpath.
-            </p>
-          </div>
-          <div className="rounded-[1.6rem] border border-slate-200 bg-white/82 p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.4)] backdrop-blur">
-            <p className="eyebrow text-slate-500">Repair updates</p>
-            <p className="mt-2 font-[family:var(--font-display)] text-4xl font-semibold text-slate-950">
-              {road.repairs.length}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              Government updates and public verification activity on this record.
-            </p>
-          </div>
+            );
+          })}
         </div>
       </section>
 
       {section === "record" ? (
         <section className="space-y-6">
-          <div className="space-y-5">
-            {canSubmitObservation ? (
-              <LiveObservationForm roadId={road.id} roadName={road.name} />
-            ) : (
-              <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-6 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
-                <p className="eyebrow text-slate-500">Government flow</p>
-                <h3 className="mt-2 font-[family:var(--font-display)] text-3xl font-semibold text-slate-950">
-                  Government-labelled accounts review public records and record repairs.
-                </h3>
-                <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-                  Public observations remain a resident flow. Use the history tab on this road
-                  record to review pending complaints, then open a dedicated repair form for the
-                  issue you want to update. Sign out if you need to test anonymous issue
-                  submission.
-                </p>
-                <div className="mt-5 flex flex-wrap gap-3">
-                  <Link
-                    href={`/roads/${road.slug}?section=history`}
-                    className="inline-flex items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                  >
-                    Review pending complaints
-                  </Link>
-                </div>
-              </div>
-            )}
-
-            <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-5 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
-              <p className="eyebrow text-slate-500">RSS follow</p>
-              <h3 className="mt-1 font-[family:var(--font-display)] text-3xl font-semibold text-slate-950">
-                Watch this road record
-              </h3>
-              <p className="mt-2 text-sm text-slate-600">
-                Save a customizable RSS feed for this road or footpath. Feed settings live in your private account area.
-              </p>
-
-              <div className="mt-4">
-                {user ? (
-                  <SubscriptionForm roadId={road.id} />
+          {canSubmitObservation ? (
+            <LiveObservationForm
+              roadId={road.id}
+              roadName={road.name}
+              roadCenterLat={road.centerLat}
+              roadCenterLng={road.centerLng}
+            />
+          ) : (
+            <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-6 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
+              <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                {user?.role === "GOV" ? (
+                  <Wrench className="h-4 w-4 text-amber-700" aria-hidden="true" />
                 ) : (
-                  <div className="rounded-[1.35rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-                    Sign in through the demo account page to save RSS subscriptions.
-                  </div>
+                  <Radio className="h-4 w-4 text-teal-700" aria-hidden="true" />
                 )}
+                {user?.role === "GOV" ? "Government repair crew" : "Resident account required"}
+              </p>
+              <h3 className="mt-2 font-[family:var(--font-display)] text-3xl font-semibold text-slate-950">
+                {user?.role === "GOV"
+                  ? "Review sightings and record repair progress."
+                  : "Sign in as a resident to capture GPS-tagged violations."}
+              </h3>
+              <div className="mt-5 flex flex-wrap gap-3">
+                <Link
+                  href={user?.role === "GOV" ? `/roads/${road.slug}?section=history` : "/account"}
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                >
+                  {user?.role === "GOV" ? "Open repair log" : "Sign in as resident"}
+                </Link>
               </div>
+            </div>
+          )}
+
+          <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-5 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
+            <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+              <Rss className="h-4 w-4 text-orange-600" aria-hidden="true" />
+              Road RSS
+            </p>
+            <h3 className="mt-1 font-[family:var(--font-display)] text-3xl font-semibold text-slate-950">
+              Subscribe to this street feed
+            </h3>
+
+            <div className="mt-4">
+              {user?.role === "RESIDENT" ? (
+                <SubscriptionForm roadId={road.id} />
+              ) : user?.role === "GOV" ? (
+                <div className="rounded-[1.35rem] border border-dashed border-amber-200 bg-amber-50 px-4 py-6 text-sm text-amber-800">
+                  Resident account required.
+                </div>
+              ) : (
+                <div className="rounded-[1.35rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                  Sign in as a resident to subscribe.
+                </div>
+              )}
             </div>
           </div>
 
-          <PublicRecordList
-            roadId={road.id}
-            roadName={road.name}
-            clusters={displayIssueClusters}
+          <CollectedViolationList
+            violations={road.collectedViolations}
             canVote={canVoteOnComplaints}
+            canModerate={user?.role === "GOV"}
             voteMessage={voteMessage}
           />
+
+          <PublicRecordList clusters={displayIssueClusters} />
 
           {mapPanel}
         </section>
@@ -273,98 +248,64 @@ export default async function RoadDetailPage({
               userRole={user?.role ?? null}
             />
 
-            <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
-              <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-5 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
-                <p className="eyebrow text-slate-500">Timeline</p>
-                <div className="mt-4 space-y-3">
-                  {road.timeline.map((event) => (
+            <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-5 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
+              <p className="eyebrow text-slate-500">Repair log</p>
+              <div className="mt-4 space-y-4">
+                {road.repairs.length ? (
+                  road.repairs.map((repair) => (
                     <div
-                      key={event.id}
-                      className="rounded-[1.35rem] border border-slate-200 bg-slate-50 px-4 py-4"
+                      key={repair.id}
+                      className="rounded-[1.45rem] border border-slate-200 bg-slate-50 px-4 py-4"
                     >
-                      <div className="flex items-start justify-between gap-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
-                          <p className="font-semibold text-slate-950">{event.title}</p>
-                          <p className="mt-1 text-sm text-slate-600">{event.detail}</p>
-                        </div>
-                        <div className="text-right text-xs text-slate-500">
-                          <p>{formatDateTime(event.at)}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold text-slate-950">{repair.issueLabel}</p>
+                            <span
+                              className={cn(
+                                "rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]",
+                                repair.status === "REPAIRED"
+                                  ? toneClasses.good
+                                  : toneClasses.warning,
+                              )}
+                            >
+                              {repair.statusLabel}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm text-slate-600">{repair.note}</p>
+                          <p className="mt-3 text-xs text-slate-500">
+                            {formatDateTime(repair.recordedAt)}
+                          </p>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
 
-              <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-5 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
-                <p className="eyebrow text-slate-500">Repair ledger</p>
-                <div className="mt-4 space-y-4">
-                  {road.repairs.length ? (
-                    road.repairs.map((repair) => (
-                      <div
-                        key={repair.id}
-                        className="rounded-[1.45rem] border border-slate-200 bg-slate-50 px-4 py-4"
-                      >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="font-semibold text-slate-950">{repair.issueLabel}</p>
-                              <span
-                                className={cn(
-                                  "rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]",
-                                  repair.status === "REPAIRED"
-                                    ? toneClasses.good
-                                    : toneClasses.warning,
-                                )}
-                              >
-                                {repair.statusLabel}
-                              </span>
-                            </div>
-                            <p className="mt-2 text-sm text-slate-600">{repair.note}</p>
-                            <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
-                              <span>recorded {formatDate(repair.recordedAt)}</span>
-                              {repair.completedAt ? (
-                                <span>completed {formatDate(repair.completedAt)}</span>
-                              ) : null}
-                              <span>by {repair.recordedByLabel}</span>
-                              <span>{repair.verifications.length} verifications</span>
-                              <span>
-                                {repair.proofImagePath
-                                  ? "repair photo attached"
-                                  : "no repair photo"}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {repair.verifications.length ? (
-                          <div className="mt-4 space-y-2">
-                            {repair.verifications.map((verification) => (
-                              <div
-                                key={verification.id}
-                                className="rounded-[1.1rem] border border-slate-200 bg-white px-3 py-3 text-sm"
-                              >
-                                <div className="flex items-center justify-between gap-4">
-                                  <p className="font-semibold text-slate-900">
-                                    {verification.verdictLabel}
-                                  </p>
-                                  <p className="text-xs text-slate-500">
-                                    {formatDate(verification.createdAt)}
-                                  </p>
-                                </div>
-                                <p className="mt-1 text-slate-600">{verification.note}</p>
+                      {repair.verifications.length ? (
+                        <div className="mt-4 space-y-2">
+                          {repair.verifications.map((verification) => (
+                            <div
+                              key={verification.id}
+                              className="rounded-[1.1rem] border border-slate-200 bg-white px-3 py-3 text-sm"
+                            >
+                              <div className="flex items-center justify-between gap-4">
+                                <p className="font-semibold text-slate-900">
+                                  {verification.verdictLabel}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  {formatDate(verification.createdAt)}
+                                </p>
                               </div>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-[1.35rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-                      No repair updates have been recorded on this road yet.
+                              <p className="mt-1 text-slate-600">{verification.note}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                  )}
-                </div>
+                  ))
+                ) : (
+                  <div className="rounded-[1.35rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                    No repair updates have been recorded on this road yet.
+                  </div>
+                )}
               </div>
             </div>
           </section>
@@ -399,10 +340,13 @@ export default async function RoadDetailPage({
             </div>
 
             {user ? (
-              <CommunityComposer roadId={road.id} category={communityCategory} />
+              <CommunityComposer
+                roadId={road.id}
+                category={communityCategory}
+              />
             ) : (
               <div className="rounded-[1.5rem] border border-dashed border-slate-200 bg-white/82 px-4 py-6 text-sm text-slate-500 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.35)] backdrop-blur">
-                Sign in through the demo account page to participate in community discussions or save RSS feeds.
+                Sign in to participate in community discussions.
               </div>
             )}
           </div>
@@ -418,12 +362,12 @@ export default async function RoadDetailPage({
                     key={entry.id}
                     className="rounded-[1.45rem] border border-slate-200 bg-slate-50 px-4 py-4"
                   >
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="font-semibold text-slate-950">{entry.title}</p>
                         <p className="mt-2 text-sm text-slate-600">{entry.body}</p>
                       </div>
-                      <div className="text-right text-xs text-slate-500">
+                      <div className="text-xs text-slate-500 sm:text-right">
                         <p>{formatDate(entry.createdAt)}</p>
                         <p>{entry.agreementCount} agreement</p>
                       </div>
