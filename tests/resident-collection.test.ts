@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -98,6 +98,29 @@ test(
       centerLat: number;
       centerLng: number;
     };
+    const nonClearedSeedCount = (
+      database
+        .prepare(
+          'SELECT COUNT(*) AS "count" FROM "Observation" WHERE "humanCheckStatus" != ?',
+        )
+        .get("CLEARED") as { count: number }
+    ).count;
+
+    assert.equal(
+      nonClearedSeedCount,
+      0,
+      "Seeded demo observations must be explicitly cleared so the fail-closed default does not hide public records.",
+    );
+
+    const observationStorageDir = join(server.repoRoot, "storage", "observations");
+    const listStoredEvidence = async () => {
+      try {
+        return new Set(await readdir(observationStorageDir));
+      } catch {
+        return new Set<string>();
+      }
+    };
+
     const beforeReceiptCount = (
       database
         .prepare('SELECT COUNT(*) AS "count" FROM "ObservationReceipt" WHERE "userId" = ?')
@@ -239,6 +262,26 @@ test(
     assert.match(govPendingHtml, /Approve capture/);
     assert.match(govPendingHtml, /Reject capture/);
 
+    const [ownerDataTabHtml, govDataTabHtml] = await Promise.all([
+      fetch(`${server.baseUrl}/roads/${road.slug}?section=data`, {
+        headers: { cookie: residentASessionCookie },
+      }).then((response) => response.text()),
+      fetch(`${server.baseUrl}/roads/${road.slug}?section=data`, {
+        headers: { cookie: govSessionCookie },
+      }).then((response) => response.text()),
+    ]);
+
+    assert.doesNotMatch(
+      ownerDataTabHtml,
+      /Pending review/,
+      "The export-framed JSON preview must exclude the owner's unpublished pending capture.",
+    );
+    assert.doesNotMatch(
+      govDataTabHtml,
+      /Pending review/,
+      "The export-framed JSON preview must exclude pending captures for government viewers.",
+    );
+
     const moderationInputs = parseFormContaining(
       govPendingHtml,
       "observationId",
@@ -331,6 +374,7 @@ test(
       200,
     );
 
+    const evidenceBeforeDuplicate = await listStoredEvidence();
     const duplicateResponse = await submitServerAction({
       baseUrl: server.baseUrl,
       path: reportPath,
@@ -355,10 +399,19 @@ test(
         .prepare('SELECT COUNT(*) AS "count" FROM "ObservationReceipt" WHERE "userId" = ?')
         .get(residentA.id) as { count: number }
     ).count;
+    const evidenceAfterDuplicate = await listStoredEvidence();
+    const orphanedDuplicateEvidence = [...evidenceAfterDuplicate].filter(
+      (name) => !evidenceBeforeDuplicate.has(name),
+    );
 
     assert.equal(duplicateResponse.status, 200);
     assert.match(duplicateResult, /duplicate of a violation/);
     assert.equal(duplicateReceiptCount, afterReceiptCount);
+    assert.deepEqual(
+      orphanedDuplicateEvidence,
+      [],
+      "A rejected duplicate submission must remove the evidence file it wrote before the transaction.",
+    );
 
     const rejectedDescription = `Rejected collection test ${Date.now()}`;
     const rejectedCollectionResponse = await submitServerAction({

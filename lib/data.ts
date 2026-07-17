@@ -1,5 +1,6 @@
 import {
   type CommunityCategory,
+  type HumanCheckStatus,
   type IssueType,
   type IssueVoteKind,
   Prisma,
@@ -140,6 +141,13 @@ export type IssueClusterSummary = {
   viewerVote: IssueVoteKind | null;
 };
 
+export type CollectedCaptureState =
+  | "open"
+  | "monitoring"
+  | "resolved"
+  | "pending"
+  | "rejected";
+
 export type RoadTimelineItem = {
   id: string;
   kind: "observation" | "repair" | "verification";
@@ -197,7 +205,7 @@ export type RoadDetail = {
     severityScore: number;
     severityBand: SeverityBand;
     severityLabel: string;
-    state: "open" | "monitoring" | "resolved";
+    state: CollectedCaptureState;
     stateLabel: string;
     description: string;
     evidencePath: string;
@@ -357,7 +365,7 @@ export type MyComplaintDashboard = {
     severityScore: number;
     severityBand: SeverityBand;
     severityLabel: string;
-    state: "open" | "monitoring" | "resolved";
+    state: CollectedCaptureState;
     stateLabel: string;
     description: string;
     evidencePath: string;
@@ -389,6 +397,29 @@ export type CollectorLeaderboard = {
     likeCount: number;
     dislikeCount: number;
   };
+};
+
+export type PendingModerationCapture = {
+  id: string;
+  roadSlug: string;
+  roadName: string;
+  assetLabel: string;
+  issueType: IssueType;
+  issueLabel: string;
+  severityScore: number;
+  severityBand: SeverityBand;
+  severityLabel: string;
+  description: string;
+  evidencePath: string;
+  gpsLat: number;
+  gpsLng: number;
+  submittedAt: string;
+  collectorLabel: string | null;
+};
+
+export type PendingModerationQueue = {
+  totalCount: number;
+  captures: PendingModerationCapture[];
 };
 
 export type ExportRow = {
@@ -792,6 +823,24 @@ function canViewObservation(
   );
 }
 
+function deriveCollectedCaptureState(
+  humanCheckStatus: HumanCheckStatus,
+  cluster: Pick<IssueClusterSummary, "state" | "stateLabel"> | undefined,
+): { state: CollectedCaptureState; stateLabel: string } {
+  if (humanCheckStatus === "MANUAL_REVIEW") {
+    return { state: "pending", stateLabel: "Pending review" };
+  }
+
+  if (humanCheckStatus === "REJECTED") {
+    return { state: "rejected", stateLabel: "Rejected" };
+  }
+
+  return {
+    state: cluster?.state ?? "open",
+    stateLabel: cluster?.stateLabel ?? "Open observation",
+  };
+}
+
 function buildRoadDetail(
   road: RoadAssetRecord,
   viewerUserId?: string | null,
@@ -863,6 +912,10 @@ function buildRoadDetail(
         const severityBand = getSeverityBand(observation.severityScore);
         const cluster = clustersByKey.get(observation.issueClusterKey);
         const ownerUserId = observation.receipts[0]?.userId ?? null;
+        const derivedState = deriveCollectedCaptureState(
+          observation.humanCheckStatus,
+          cluster,
+        );
 
         return {
           id: observation.id,
@@ -874,8 +927,8 @@ function buildRoadDetail(
           severityScore: observation.severityScore,
           severityBand,
           severityLabel: severityBandMeta[severityBand].label,
-          state: cluster?.state ?? "open",
-          stateLabel: cluster?.stateLabel ?? "Open observation",
+          state: derivedState.state,
+          stateLabel: derivedState.stateLabel,
           description: observation.description,
           evidencePath: observation.evidencePath,
           humanCheckStatus: observation.humanCheckStatus,
@@ -1064,6 +1117,52 @@ export async function getWardDashboard(): Promise<WardDashboard> {
   };
 }
 
+export async function getPendingModerationQueue(): Promise<PendingModerationQueue> {
+  const observations = await prisma.observation.findMany({
+    where: {
+      humanCheckStatus: "MANUAL_REVIEW",
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+    include: {
+      road: true,
+      receipts: {
+        include: {
+          user: true,
+        },
+      },
+    },
+  });
+
+  const captures = observations.map((observation) => {
+    const severityBand = getSeverityBand(observation.severityScore);
+
+    return {
+      id: observation.id,
+      roadSlug: observation.road.slug,
+      roadName: observation.road.name,
+      assetLabel: roadAssetTypeMeta[observation.road.assetType].label,
+      issueType: observation.issueType,
+      issueLabel: issueTypeMeta[observation.issueType].label,
+      severityScore: observation.severityScore,
+      severityBand,
+      severityLabel: severityBandMeta[severityBand].label,
+      description: observation.description,
+      evidencePath: observation.evidencePath,
+      gpsLat: observation.gpsLat ?? observation.road.centerLat,
+      gpsLng: observation.gpsLng ?? observation.road.centerLng,
+      submittedAt: observation.createdAt.toISOString(),
+      collectorLabel: observation.receipts[0]?.user.publicLabel ?? null,
+    };
+  });
+
+  return {
+    totalCount: captures.length,
+    captures,
+  };
+}
+
 export async function getRoadDetail(
   slug: string,
   viewerUserId?: string | null,
@@ -1214,7 +1313,17 @@ export async function getMyComplaintDashboard(
   const complaints = receipts.map((receipt) => {
     const road = receipt.observation.road;
     const cachedClusters = clustersByRoadId.get(road.id);
-    const issueClusters = cachedClusters ?? buildIssueClusters(road, userId);
+    const issueClusters =
+      cachedClusters ??
+      buildIssueClusters(
+        {
+          ...road,
+          observations: road.observations.filter(
+            (observation) => observation.humanCheckStatus === "CLEARED",
+          ),
+        },
+        userId,
+      );
 
     if (!cachedClusters) {
       clustersByRoadId.set(road.id, issueClusters);
@@ -1224,6 +1333,10 @@ export async function getMyComplaintDashboard(
       (item) => item.clusterKey === receipt.observation.issueClusterKey,
     );
     const severityBand = getSeverityBand(receipt.observation.severityScore);
+    const derivedState = deriveCollectedCaptureState(
+      receipt.observation.humanCheckStatus,
+      cluster,
+    );
 
     return {
       id: receipt.id,
@@ -1236,8 +1349,8 @@ export async function getMyComplaintDashboard(
       severityScore: receipt.observation.severityScore,
       severityBand: cluster?.severityBand ?? severityBand,
       severityLabel: cluster?.severityLabel ?? severityBandMeta[severityBand].label,
-      state: cluster?.state ?? "open",
-      stateLabel: cluster?.stateLabel ?? "Open observation",
+      state: derivedState.state,
+      stateLabel: derivedState.stateLabel,
       description: receipt.observation.description,
       evidencePath: receipt.observation.evidencePath,
       humanCheckStatus: receipt.observation.humanCheckStatus,

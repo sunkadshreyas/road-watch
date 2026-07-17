@@ -16,7 +16,7 @@ export function SiteShell({ user, children }: SiteShellProps) {
     user?.role === "GOV"
       ? [
           { href: "/", label: "Overview" },
-          { href: "/admin", label: "Review queue" },
+          { href: "/moderation", label: "Review queue" },
           { href: "/rankings", label: "Rankings" },
           { href: "/insights", label: "Insights" },
         ]

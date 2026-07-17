@@ -5,16 +5,20 @@ import { redirect } from "next/navigation";
 
 import { getSessionUser } from "@/lib/auth";
 import { severityBandMeta, toneClasses } from "@/lib/constants";
-import { getMyComplaintDashboard } from "@/lib/data";
+import { getMyComplaintDashboard, type CollectedCaptureState } from "@/lib/data";
 import { cn, formatDate } from "@/lib/utils";
 
-function stateTone(state: "open" | "monitoring" | "resolved") {
+function stateTone(state: CollectedCaptureState) {
   if (state === "resolved") {
     return toneClasses.good;
   }
 
   if (state === "monitoring") {
     return toneClasses.warning;
+  }
+
+  if (state === "pending" || state === "rejected") {
+    return toneClasses.neutral;
   }
 
   return toneClasses.danger;

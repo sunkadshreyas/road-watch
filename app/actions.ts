@@ -174,7 +174,13 @@ async function writeObservationImage(dataUrl: string, observationId: string) {
   const targetPath = join(uploadDir, filename);
 
   await mkdir(uploadDir, { recursive: true });
-  await writeFile(targetPath, buffer);
+
+  try {
+    await writeFile(targetPath, buffer);
+  } catch (error) {
+    await rm(targetPath, { force: true });
+    throw error;
+  }
 
   return {
     evidencePath: `/api/observations/${observationId}/evidence/${filename}`,
@@ -316,9 +322,13 @@ export async function createObservationAction(
     }
 
     const serverReceivedAt = new Date();
+    const observationId = randomUUID();
     let savedImagePath: string | null = null;
 
     try {
+      const savedImage = await writeObservationImage(imageData, observationId);
+      savedImagePath = savedImage.targetPath;
+
       await prisma.$transaction(async (transaction) => {
         const recentReceipts = await transaction.observationReceipt.findMany({
           where: {
@@ -353,9 +363,6 @@ export async function createObservationAction(
           );
         }
 
-        const observationId = randomUUID();
-        const savedImage = await writeObservationImage(imageData, observationId);
-        savedImagePath = savedImage.targetPath;
         const observation = await transaction.observation.create({
           data: {
             id: observationId,
@@ -399,6 +406,7 @@ export async function createObservationAction(
     revalidatePath("/collection");
     revalidatePath("/my-complaints");
     revalidatePath("/leaderboard");
+    revalidatePath("/moderation");
 
     return {
       status: "success",
@@ -411,54 +419,6 @@ export async function createObservationAction(
         error instanceof Error ? error.message : "Unable to save observation.",
     };
   }
-}
-
-export async function voteOnIssueClusterAction(formData: FormData) {
-  const user = await requireResidentUser();
-  const roadId = requiredString(formData, "roadId", "Road");
-  const clusterKey = requiredString(formData, "clusterKey", "Issue cluster");
-  const voteKind = parseIssueVoteKind(formData);
-  const road = await getRoadForMutation(roadId, user.wardId);
-
-  const existingVote = await prisma.issueClusterVote.findUnique({
-    where: {
-      roadId_issueClusterKey_userId: {
-        roadId: road.id,
-        issueClusterKey: clusterKey,
-        userId: user.id,
-      },
-    },
-  });
-
-  if (existingVote?.kind === voteKind) {
-    await prisma.issueClusterVote.delete({
-      where: {
-        id: existingVote.id,
-      },
-    });
-  } else {
-    await prisma.issueClusterVote.upsert({
-      where: {
-        roadId_issueClusterKey_userId: {
-          roadId: road.id,
-          issueClusterKey: clusterKey,
-          userId: user.id,
-        },
-      },
-      create: {
-        roadId: road.id,
-        issueClusterKey: clusterKey,
-        userId: user.id,
-        kind: voteKind,
-      },
-      update: {
-        kind: voteKind,
-      },
-    });
-  }
-
-  revalidateRoadViews(road.slug);
-  revalidatePath("/account");
 }
 
 export async function voteOnObservationAction(formData: FormData) {
@@ -596,6 +556,7 @@ export async function moderateObservationAction(formData: FormData) {
   revalidatePath("/collection");
   revalidatePath("/my-complaints");
   revalidatePath("/leaderboard");
+  revalidatePath("/moderation");
 }
 
 export async function createCommunityEntryAction(

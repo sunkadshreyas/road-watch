@@ -164,7 +164,7 @@ Naming conventions:
 - The app rejects captures where the current person-detection flow identifies a person in frame.
 - The server does not trust browser person-detection output as authoritative clearance. New resident captures use `MANUAL_REVIEW` and expose that state on the public capture card.
 - On successful submission, the violation appears in the user's collection and private road view. It appears publicly after government approval.
-- The submitting resident earns +10 points once per saved violation.
+- The submitting resident earns +10 points per violation, counted once after a government reviewer clears the capture.
 - The account or collection page shows the resident's collected violations and score breakdown.
 - Residents can like or dislike individual collected violations created by other residents.
 - The collector score includes +1 per like received and -2 per dislike received.
@@ -179,7 +179,7 @@ Naming conventions:
 - The app stores GPS latitude and longitude when available.
 - The app rejects captures where the current person-detection flow identifies a person in frame.
 - On successful submission, the violation appears in the user's collection and private road view. It appears publicly after government approval.
-- The submitting resident earns +10 points once per saved violation.
+- The submitting resident earns +10 points per violation, counted once after a government reviewer clears the capture.
 
 #### Road Violation View
 - A road page lists collected violations for that road. Implemented as the primary resident-facing record surface.
@@ -215,7 +215,7 @@ Naming conventions:
 - Unit tests cover score calculation, including posts, likes, dislikes, invalid counts, levels, badges, score windows, and deterministic tie ordering.
 - End-to-end Server Action tests cover collection creation, duplicate prevention, government approval, protected evidence access, repair submission, and vote transitions through rendered Next.js forms.
 - Duplicate tests cover forged capture timestamps and concurrent submissions. The action uses server time and keeps the duplicate check, observation write, and ownership receipt in one transaction.
-- Moderation tests prove pending captures and protected image bytes are visible only to their collector and government reviewers, government decisions are one-time, approved captures become public, and rejected captures lose score and never enter repair calculations.
+- Moderation tests prove pending captures and protected image bytes are visible only to their collector and government reviewers, government decisions are one-time, approved captures become public, only cleared captures earn score, and pending or rejected captures never enter repair calculations.
 - Authorization tests cover resident and government role guards. End-to-end checks confirm government users cannot collect and original collectors cannot vote on their own capture.
 - Read-model checks confirm collection score changes, weekly leaderboard behavior, distinct privacy-safe public labels, and absence of resident emails.
 - Mobile verification covers 18 anonymous, resident, and government checks at 360px and 390px against a fresh seeded database.

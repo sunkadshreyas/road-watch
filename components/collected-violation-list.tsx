@@ -24,6 +24,10 @@ function stateTone(state: CollectedViolation["state"]) {
     return toneClasses.warning;
   }
 
+  if (state === "pending" || state === "rejected") {
+    return toneClasses.neutral;
+  }
+
   return toneClasses.danger;
 }
 

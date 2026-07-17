@@ -120,6 +120,7 @@ export default async function RepairIssuePage({
                 alt={`${cluster.issueLabel} violation on ${road.name}`}
                 width={1200}
                 height={900}
+                unoptimized={cluster.latestEvidencePath.startsWith("/api/observations/")}
                 className="aspect-[4/3] h-full w-full object-cover"
                 sizes="(max-width: 1280px) 100vw, 640px"
               />
