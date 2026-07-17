@@ -10,8 +10,12 @@ import { getRoadDetail, getWardDashboard } from "@/lib/data";
 export default async function AdminPage() {
   const user = await getSessionUser();
 
-  if (!user || user.role !== "GOV") {
+  if (!user) {
     redirect("/account");
+  }
+
+  if (user.role !== "GOV") {
+    redirect("/");
   }
 
   const dashboard = await getWardDashboard();
