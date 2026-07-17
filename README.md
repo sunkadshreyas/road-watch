@@ -158,6 +158,7 @@ in-app Browser review.
 - Prisma 7
 - SQLite with `better-sqlite3`
 - MapLibre GL
+- Expo SDK 54 native resident app under `mobile/`
 
 ## Notes
 
@@ -173,3 +174,55 @@ in-app Browser review.
 - `/api/roads/[slug]/data.json`
 - `/api/roads/[slug]/data.csv`
 - `/feeds/subscriptions/[token]`
+
+## Native resident app
+
+The additive Expo app lives under `mobile/`. Returning residents with a valid
+session, completed safety onboarding, and camera and foreground-location
+permissions open directly on the native capture route. Nearby, collection,
+leaderboard, profile, permission recovery, and offline queue helpers are native
+routes, not WebView screens.
+
+```bash
+cd mobile
+npm install
+npm test
+npm run typecheck
+npx expo export --platform android
+npx expo export --platform ios
+```
+
+The exports validate Metro bundling. Internal device builds still require
+bundle identifiers, EAS or local signing credentials, and physical iOS and
+Android devices. The native app does not claim device verification until those
+inputs exist.
+
+Government users can open `/admin` for ward road selection, a central pending
+moderation queue, and a separate repair queue. Moderation remains separate from
+the repair lifecycle, and approved captures are the only records used for
+public nearby views and game scoring.
+
+## Local native API adapter
+
+The read-only `/api/v1` routes require an `Authorization: Bearer` header and do
+not accept the demo web cookie. For local integration, set
+`ROADWATCH_API_TOKENS_JSON` to a JSON object that maps locally managed opaque
+tokens to existing user IDs. Tokens must contain at least 16 characters. The
+adapter has no default token and fails closed when the variable is unset or a
+mapping does not match.
+
+This environment adapter is for local development only. It does not issue,
+rotate, hash, or persist credentials, and must be replaced by a production
+identity provider before deployment.
+
+Protected routes:
+
+- `/api/v1/me`
+- `/api/v1/me/collection`
+- `/api/v1/violations/nearby?lat=<latitude>&lng=<longitude>&radiusMeters=<radius>`
+- `/api/v1/leaderboard?window=all|month|week`
+- `/api/v1/auth/session` returns an explicit provider-configuration blocker
+  until an approved OIDC provider is connected.
+
+Successful responses use `{ "data": ... }`. Errors use
+`{ "error": { "code": "...", "message": "..." } }`.

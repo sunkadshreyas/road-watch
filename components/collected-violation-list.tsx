@@ -115,24 +115,32 @@ export function CollectedViolationList({
 
                 <div className="rounded-[1.15rem] border border-slate-200 bg-white px-3 py-3">
                   {canModerate && violation.humanCheckStatus === "MANUAL_REVIEW" ? (
-                    <form action={moderateObservationAction} className="mb-3 flex flex-wrap gap-2">
+                    <form action={moderateObservationAction} className="mb-3 space-y-2">
                       <input type="hidden" name="observationId" value={violation.id} />
-                      <button
-                        type="submit"
-                        name="moderationStatus"
-                        value="CLEARED"
-                        className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
-                      >
-                        Approve capture
-                      </button>
-                      <button
-                        type="submit"
-                        name="moderationStatus"
-                        value="REJECTED"
-                        className="rounded-full border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-                      >
-                        Reject capture
-                      </button>
+                      <input
+                        name="moderationReason"
+                        placeholder="Reason required when rejecting"
+                        aria-label="Moderation reason"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="submit"
+                          name="moderationStatus"
+                          value="CLEARED"
+                          className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+                        >
+                          Approve capture
+                        </button>
+                        <button
+                          type="submit"
+                          name="moderationStatus"
+                          value="REJECTED"
+                          className="rounded-full border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+                        >
+                          Reject capture
+                        </button>
+                      </div>
                     </form>
                   ) : null}
                   <div className="flex flex-wrap items-center justify-between gap-3">

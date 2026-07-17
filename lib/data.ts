@@ -1255,7 +1255,7 @@ export async function getMyComplaintDashboard(
   });
 
   const scoreEligibleComplaints = complaints.filter(
-    (complaint) => complaint.humanCheckStatus !== "REJECTED",
+    (complaint) => complaint.humanCheckStatus === "CLEARED",
   );
   const receivedLikeCount = scoreEligibleComplaints.reduce(
     (sum, complaint) => sum + complaint.likeCount,
@@ -1322,7 +1322,7 @@ export async function getCollectorLeaderboard(
   const entries = rankCollectorScores(
     residents.map((resident) => {
       const scoreEligibleReceipts = resident.observationReceipts.filter(
-        (receipt) => receipt.observation.humanCheckStatus !== "REJECTED",
+        (receipt) => receipt.observation.humanCheckStatus === "CLEARED",
       );
       const includedReceipts = scoreEligibleReceipts.filter((receipt) =>
         windowStart ? receipt.createdAt >= windowStart : true,

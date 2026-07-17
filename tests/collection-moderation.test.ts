@@ -1,7 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { hasRecentDuplicateCollection } from "@/lib/collection-moderation";
+import {
+  hasRecentDuplicateCollection,
+  validateModerationDecision,
+} from "@/lib/collection-moderation";
+
+test("rejection decisions require a reason while approval can omit it", () => {
+  assert.throws(
+    () => validateModerationDecision("REJECTED", "  "),
+    /reason/i,
+  );
+  assert.equal(validateModerationDecision("CLEARED", ""), null);
+  assert.equal(
+    validateModerationDecision("REJECTED", "Image does not show a static issue."),
+    "Image does not show a static issue.",
+  );
+});
 
 test("hasRecentDuplicateCollection detects same issue nearby in time and location", () => {
   assert.equal(

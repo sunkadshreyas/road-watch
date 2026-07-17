@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "RoadWatch",
+    "slug": "roadwatch-mobile",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "scheme": "roadwatch",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow RoadWatch to photograph a static road issue while you are safely stopped."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow RoadWatch to match a capture to the nearby road while the app is open."
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "android": {
+      "softwareKeyboardLayoutMode": "resize"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import "dotenv/config";
 
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient({
   adapter: new PrismaBetterSqlite3({
@@ -226,7 +226,8 @@ async function main() {
   });
 
   await prisma.observation.createMany({
-    data: [
+    data: (
+      [
       {
         roadId: hundredFeetRoad.id,
         issueType: "POTHOLE",
@@ -423,7 +424,11 @@ async function main() {
         evidenceCapturedAt: new Date("2026-01-15T12:05:00.000Z"),
         createdAt: new Date("2026-01-15T12:05:00.000Z"),
       },
-    ],
+      ] satisfies Prisma.ObservationCreateManyInput[]
+    ).map((observation) => ({
+      ...observation,
+      humanCheckStatus: "CLEARED" as const,
+    })),
   });
 
   const [

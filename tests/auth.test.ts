@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assertGovRole, assertResidentRole } from "@/lib/auth";
+import { assertGovRole, assertResidentRole, assertWardScope } from "@/lib/auth";
+
+test("ward scope rejects cross-ward mutations", () => {
+  assert.doesNotThrow(() => assertWardScope({ wardId: "ward-1" }, "ward-1"));
+  assert.throws(
+    () => assertWardScope({ wardId: "ward-1" }, "ward-2"),
+    /assigned ward/i,
+  );
+});
 
 test("resident role guard allows resident collection, voting, and subscription actions", () => {
   assert.doesNotThrow(() => assertResidentRole({ role: "RESIDENT" }));

@@ -45,6 +45,12 @@ export function assertResidentRole(user: { role: AuthRole }) {
   }
 }
 
+export function assertWardScope(user: { wardId: string }, wardId: string) {
+  if (user.wardId !== wardId) {
+    throw new Error("This account cannot act outside its assigned ward.");
+  }
+}
+
 export async function requireGovUser() {
   const user = await requireUser();
 

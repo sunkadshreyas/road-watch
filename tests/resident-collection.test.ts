@@ -140,6 +140,8 @@ test(
       `Expected the collection action to stay inline.\nRecent server output:\n${server.serverOutput}`,
     );
     assert.match(collectionResult, /Violation collected/);
+    assert.match(collectionResult, /review/i);
+    assert.doesNotMatch(collectionResult, /\+10 points/i);
     assert.match(collectionResult, /View leaderboard/);
 
     const createdObservation = database
@@ -198,10 +200,10 @@ test(
     assert.match(collectionPageHtml, new RegExp(description));
     const collectionPageText = visibleText(collectionPageHtml);
 
-    assert.match(collectionPageText, /Collection \+40/);
+    assert.match(collectionPageText, /Collection \+30/);
     assert.match(collectionPageText, /Likes \+2/);
     assert.match(collectionPageText, /Dislikes -0/);
-    assert.match(collectionPageText, /Total 42/);
+    assert.match(collectionPageText, /Total 32/);
     assert.match(roadPageHtml, new RegExp(description));
     assert.match(roadPageHtml, /Manual review pending/);
     assert.match(roadPageHtml, /You cannot vote on a violation you collected/);
@@ -262,6 +264,36 @@ test(
       ).humanCheckStatus,
       "CLEARED",
     );
+    const audit = database
+      .prepare(
+        'SELECT "actorUserId", "previousState", "newState", "reason" FROM "ModerationAudit" WHERE "observationId" = ?',
+      )
+      .get(createdObservation.id) as {
+      actorUserId: string;
+      previousState: string;
+      newState: string;
+      reason: string | null;
+    };
+    assert.deepEqual(audit, {
+      actorUserId: "cmosvmckg0003a0x9w00v5n90",
+      previousState: "MANUAL_REVIEW",
+      newState: "CLEARED",
+      reason: null,
+    });
+
+    const approvedCollectionHtml = await fetch(`${server.baseUrl}/collection`, {
+      headers: { cookie: residentASessionCookie },
+    }).then((response) => response.text());
+    const approvedCollectionText = visibleText(approvedCollectionHtml);
+
+    assert.match(approvedCollectionText, /Collection \+40/);
+    assert.match(approvedCollectionText, /Total 42/);
+
+    const repeatedApprovedCollectionHtml = await fetch(`${server.baseUrl}/collection`, {
+      headers: { cookie: residentASessionCookie },
+    }).then((response) => response.text());
+
+    assert.match(visibleText(repeatedApprovedCollectionHtml), /Total 42/);
 
     const repeatedModerationResponse = await submitServerAction({
       baseUrl: server.baseUrl,

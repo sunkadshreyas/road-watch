@@ -13,10 +13,14 @@ import {
   requireGovUser,
   requireResidentUser,
   requireUser,
+  assertWardScope,
   setSessionUser,
 } from "@/lib/auth";
 import { issueTypeMeta, issueTypeOptions, rssEventTypeOptions } from "@/lib/constants";
-import { hasRecentDuplicateCollection } from "@/lib/collection-moderation";
+import {
+  hasRecentDuplicateCollection,
+  validateModerationDecision,
+} from "@/lib/collection-moderation";
 import { getRoadProximityStatus, requireGpsPoint } from "@/lib/geo";
 import { decodeObservationImageDataUrl } from "@/lib/observation-evidence";
 import { prisma } from "@/lib/prisma";
@@ -205,7 +209,7 @@ async function writeUploadedImage(file: File, directory: string, label: string) 
   return `/uploads/${directory}/${filename}`;
 }
 
-async function getRoadForMutation(roadId: string) {
+async function getRoadForMutation(roadId: string, wardId?: string) {
   const road = await prisma.roadAsset.findUnique({
     where: {
       id: roadId,
@@ -216,11 +220,16 @@ async function getRoadForMutation(roadId: string) {
       name: true,
       centerLat: true,
       centerLng: true,
+      wardId: true,
     },
   });
 
   if (!road) {
     throw new Error("Road record not found.");
+  }
+
+  if (wardId) {
+    assertWardScope({ wardId }, road.wardId);
   }
 
   return road;
@@ -292,7 +301,7 @@ export async function createObservationAction(
       throw new Error("Image rejected because a person was detected in frame.");
     }
 
-    const road = await getRoadForMutation(roadId);
+    const road = await getRoadForMutation(roadId, sessionUser.wardId);
     const proximity = getRoadProximityStatus(gpsPoint, {
       slug: road.slug,
       name: road.name,
@@ -393,7 +402,7 @@ export async function createObservationAction(
 
     return {
       status: "success",
-      message: `Violation collected on ${road.name}. +10 points added to your collection.`,
+      message: `Violation collected on ${road.name}. It is pending government review, and points are awarded after approval.`,
     };
   } catch (error) {
     return {
@@ -409,7 +418,7 @@ export async function voteOnIssueClusterAction(formData: FormData) {
   const roadId = requiredString(formData, "roadId", "Road");
   const clusterKey = requiredString(formData, "clusterKey", "Issue cluster");
   const voteKind = parseIssueVoteKind(formData);
-  const road = await getRoadForMutation(roadId);
+  const road = await getRoadForMutation(roadId, user.wardId);
 
   const existingVote = await prisma.issueClusterVote.findUnique({
     where: {
@@ -520,7 +529,7 @@ export async function voteOnObservationAction(formData: FormData) {
 }
 
 export async function moderateObservationAction(formData: FormData) {
-  await requireGovUser();
+  const user = await requireGovUser();
   const observationId = requiredString(formData, "observationId", "Violation");
   const moderationStatus = requiredString(
     formData,
@@ -545,23 +554,42 @@ export async function moderateObservationAction(formData: FormData) {
     throw new Error("Violation not found.");
   }
 
+  assertWardScope(user, observation.road.wardId);
+
   if (observation.humanCheckStatus !== "MANUAL_REVIEW") {
     throw new Error("This violation has already been reviewed.");
   }
 
-  const decision = await prisma.observation.updateMany({
-    where: {
-      id: observation.id,
-      humanCheckStatus: "MANUAL_REVIEW",
-    },
-    data: {
-      humanCheckStatus: moderationStatus,
-    },
-  });
+  const moderationReason = validateModerationDecision(
+    moderationStatus,
+    String(formData.get("moderationReason") ?? ""),
+  );
 
-  if (decision.count !== 1) {
-    throw new Error("This violation has already been reviewed.");
-  }
+  await prisma.$transaction(async (transaction) => {
+    const decision = await transaction.observation.updateMany({
+      where: {
+        id: observation.id,
+        humanCheckStatus: "MANUAL_REVIEW",
+      },
+      data: {
+        humanCheckStatus: moderationStatus,
+      },
+    });
+
+    if (decision.count !== 1) {
+      throw new Error("This violation has already been reviewed.");
+    }
+
+    await transaction.moderationAudit.create({
+      data: {
+        observationId: observation.id,
+        actorUserId: user.id,
+        previousState: observation.humanCheckStatus,
+        newState: moderationStatus,
+        reason: moderationReason,
+      },
+    });
+  });
 
   revalidateRoadViews(observation.road.slug);
   revalidatePath("/account");
@@ -585,7 +613,7 @@ export async function createCommunityEntryAction(
       throw new Error("Choose a valid community category.");
     }
 
-    const road = await getRoadForMutation(roadId);
+    const road = await getRoadForMutation(roadId, user.wardId);
 
     await prisma.communityEntry.create({
       data: {
@@ -636,7 +664,7 @@ export async function createSubscriptionAction(
     const eventTypes = parseStringList(formData, "eventTypes").filter((value) =>
       rssEventTypeOptions.includes(value as (typeof rssEventTypeOptions)[number]),
     ) as Array<(typeof rssEventTypeOptions)[number]>;
-    const road = await getRoadForMutation(roadId);
+    const road = await getRoadForMutation(roadId, user.wardId);
 
     await prisma.subscription.upsert({
       where: {
@@ -707,7 +735,7 @@ export async function recordRepairAction(
       5000000,
     );
     const proofImage = optionalFile(formData, "proofImage");
-    const road = await getRoadForMutation(roadId);
+    const road = await getRoadForMutation(roadId, user.wardId);
     const now = new Date();
 
     if (status === "REPAIRED" && !proofImage) {

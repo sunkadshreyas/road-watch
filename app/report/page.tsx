@@ -143,7 +143,7 @@ export default async function ReportIssuePage({
           </h3>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link
-              href={user?.role === "GOV" ? `/roads/${road.slug}?section=history` : "/account"}
+              href={user?.role === "GOV" ? "/admin" : "/account"}
               className="inline-flex items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
               {user?.role === "GOV" ? "Review pending violations" : "Sign in as resident"}

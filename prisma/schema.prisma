@@ -97,35 +97,35 @@ model User {
 }
 
 model RoadAsset {
-  id               String           @id @default(cuid())
-  wardId           String
-  ward             Ward             @relation(fields: [wardId], references: [id], onDelete: Cascade)
-  slug             String           @unique
-  name             String
-  assetType        RoadAssetType
-  osmId            String
-  summary          String
-  geometryGeoJson  String
-  centerLat        Float
-  centerLng        Float
-  lengthMeters     Int
-  importanceScore  Int
-  surfaceLabel     String
-  observations     Observation[]
-  repairs          RepairEvent[]
-  communityEntries CommunityEntry[]
-  subscriptions    Subscription[]
+  id                String             @id @default(cuid())
+  wardId            String
+  ward              Ward               @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  slug              String             @unique
+  name              String
+  assetType         RoadAssetType
+  osmId             String
+  summary           String
+  geometryGeoJson   String
+  centerLat         Float
+  centerLng         Float
+  lengthMeters      Int
+  importanceScore   Int
+  surfaceLabel      String
+  observations      Observation[]
+  repairs           RepairEvent[]
+  communityEntries  CommunityEntry[]
+  subscriptions     Subscription[]
   issueClusterVotes IssueClusterVote[]
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@index([wardId, assetType])
 }
 
 model Observation {
-  id                 String            @id @default(cuid())
+  id                 String               @id @default(cuid())
   roadId             String
-  road               RoadAsset         @relation(fields: [roadId], references: [id], onDelete: Cascade)
+  road               RoadAsset            @relation(fields: [roadId], references: [id], onDelete: Cascade)
   issueType          IssueType
   issueClusterKey    String
   description        String
@@ -135,13 +135,28 @@ model Observation {
   gpsLng             Float?
   evidencePath       String
   evidenceCapturedAt DateTime
-  source             ObservationSource @default(LIVE_CAMERA)
-  humanCheckStatus   HumanCheckStatus  @default(CLEARED)
+  source             ObservationSource    @default(LIVE_CAMERA)
+  humanCheckStatus   HumanCheckStatus     @default(MANUAL_REVIEW)
   receipts           ObservationReceipt[]
   votes              ObservationVote[]
-  createdAt          DateTime          @default(now())
+  moderationAudits   ModerationAudit[]
+  createdAt          DateTime             @default(now())
 
   @@index([roadId, issueClusterKey])
+}
+
+model ModerationAudit {
+  id            String           @id @default(cuid())
+  observationId String
+  observation   Observation      @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  actorUserId   String
+  previousState HumanCheckStatus
+  newState      HumanCheckStatus
+  reason        String?
+  createdAt     DateTime         @default(now())
+
+  @@index([observationId, createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 model ObservationReceipt {

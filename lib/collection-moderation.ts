@@ -20,6 +20,19 @@ export type DuplicateCollectionInput = {
 const DEFAULT_WINDOW_MINUTES = 10;
 const DEFAULT_DISTANCE_THRESHOLD_METERS = 50;
 
+export function validateModerationDecision(
+  status: "CLEARED" | "REJECTED",
+  reason: string,
+) {
+  const normalizedReason = reason.trim();
+
+  if (status === "REJECTED" && normalizedReason.length < 8) {
+    throw new Error("A rejection reason is required.");
+  }
+
+  return normalizedReason || null;
+}
+
 function toPoint(lat: number | null, lng: number | null): GeoPoint | null {
   if (lat == null || lng == null) {
     return null;
