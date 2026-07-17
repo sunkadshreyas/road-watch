@@ -9,7 +9,8 @@ This MVP turns street maintenance into a Pokemon Go-style resident workflow. Res
 - Resident-only live capture for road and footpath violations with required GPS
 - Full public record per road: approved sightings, upvotes, downvotes, repair history, verification, community context
 - Resident and government personas with separate workflows
-- Government repair queue sorted by resident support and issue priority
+- Government repair queue sorted by repair priority, then severity
+- Central government moderation queue that gates every resident capture before it reaches public records, scores, and repair planning
 - Private `Collection` view for residents without exposing collector identity publicly
 - Resident-only RSS subscriptions plus JSON and CSV export for planners and media
 - Collector scoring and leaderboard for gamified reporting
@@ -88,9 +89,9 @@ public road record and in public exports and feeds.
 ### Government flow
 
 1. Sign in as `Ward Engineer`
-2. Open a road record and approve or reject any capture awaiting manual review
+2. Open `Moderation` to review the central queue and approve or reject any capture awaiting manual review, or moderate a capture inline on its road record
 3. Open a road record such as `/roads/100-feet-road?section=history`
-4. Review approved violations sorted by resident support, then priority
+4. Review approved violations sorted by repair priority, then severity
 5. Open a repair task
 6. Record a repair update and attach a repair proof photo
 7. Confirm that government users cannot collect violations, vote, or subscribe to resident RSS feeds
@@ -105,6 +106,7 @@ public road record and in public exports and feeds.
 - `/roads/[slug]` road or footpath public record
 - `/roads/[slug]/repairs/[clusterKey]` government repair form for a specific violation cluster
 - `/leaderboard` resident collector leaderboard
+- `/moderation` government-only central moderation queue for captures awaiting review
 - `/rankings` government-only budget and priority view
 - `/insights` government-only repeat-failure and waste view
 
@@ -163,7 +165,7 @@ in-app Browser review.
 
 - The demo uses seeded local data and images so it is presentation-ready on a fresh machine.
 - Live camera enforcement and person detection are demo-level browser safeguards, not tamper-proof controls. New resident captures are stored as `MANUAL_REVIEW`; only the collector and government reviewers can read the pending record or image. Approval publishes it to road pages, exports, and feeds.
-- Rejected captures remain visible in the collector's private history but do not earn points, unlock badges, affect leaderboards, or enter government repair priorities and budgets.
+- Only cleared captures earn points, unlock badges, affect leaderboards, or enter government repair priorities and budgets. Pending captures appear in the collector's private history but do not score until a reviewer clears them, and rejected captures stay in that history without ever scoring.
 - The server validates GPS coordinate ranges, enforces proximity confirmation, uses server time for duplicate detection, and writes each observation with its ownership receipt in one transaction.
 - Restarting or failing camera setup stops every acquired media track before another session can begin.
 - Runtime uploads created while testing are ignored from Git; seeded demo assets are committed.
