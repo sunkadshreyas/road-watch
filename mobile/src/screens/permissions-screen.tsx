@@ -51,7 +51,7 @@ export function PermissionsScreen() {
       />
       <PrimaryButton
         label={ready ? "Open camera" : "Request required permissions"}
-        onPress={ready ? () => router.replace("/") : requestRequiredPermissions}
+        onPress={ready ? () => router.dismissTo("/") : requestRequiredPermissions}
         busy={busy}
       />
       {!ready &&
