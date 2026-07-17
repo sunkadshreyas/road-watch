@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { severityBandMeta, toneClasses } from "@/lib/constants";
 import type { IssueClusterSummary } from "@/lib/data";
+import { sortPendingComplaintClusters } from "@/lib/gov-queue";
 import { cn, formatDate } from "@/lib/utils";
 
 type GovPendingComplaintListProps = {
@@ -11,21 +12,12 @@ type GovPendingComplaintListProps = {
   clusters: IssueClusterSummary[];
 };
 
-function sortClusters(left: IssueClusterSummary, right: IssueClusterSummary) {
-  return (
-    right.likeCount - left.likeCount ||
-    right.priorityScore - left.priorityScore ||
-    right.severityScore - left.severityScore ||
-    new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
-  );
-}
-
 export function GovPendingComplaintList({
   roadSlug,
   roadName,
   clusters,
 }: GovPendingComplaintListProps) {
-  const sortedClusters = [...clusters].sort(sortClusters);
+  const sortedClusters = sortPendingComplaintClusters(clusters);
 
   return (
     <section className="rounded-[2rem] border border-slate-200 bg-white/82 p-5 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
@@ -38,7 +30,7 @@ export function GovPendingComplaintList({
         </div>
         <p className="max-w-xl text-sm leading-7 text-slate-600">
           Open a violation to review its image, history, and submit the repair update from a
-          dedicated form. The queue is sorted by public support first, then by priority.
+          dedicated form. The queue is sorted by repair priority, then by severity.
         </p>
       </div>
 
@@ -82,8 +74,6 @@ export function GovPendingComplaintList({
                   </p>
 
                   <div className="flex flex-wrap gap-3 text-xs text-slate-500">
-                    <span>{cluster.likeCount} likes</span>
-                    <span>{cluster.dislikeCount} dislikes</span>
                     <span>priority {cluster.priorityScore}</span>
                     <span>severity {cluster.severityScore}</span>
                     <span>{cluster.recurrenceCount} reports</span>

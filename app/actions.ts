@@ -412,54 +412,6 @@ export async function createObservationAction(
   }
 }
 
-export async function voteOnIssueClusterAction(formData: FormData) {
-  const user = await requireResidentUser();
-  const roadId = requiredString(formData, "roadId", "Road");
-  const clusterKey = requiredString(formData, "clusterKey", "Issue cluster");
-  const voteKind = parseIssueVoteKind(formData);
-  const road = await getRoadForMutation(roadId);
-
-  const existingVote = await prisma.issueClusterVote.findUnique({
-    where: {
-      roadId_issueClusterKey_userId: {
-        roadId: road.id,
-        issueClusterKey: clusterKey,
-        userId: user.id,
-      },
-    },
-  });
-
-  if (existingVote?.kind === voteKind) {
-    await prisma.issueClusterVote.delete({
-      where: {
-        id: existingVote.id,
-      },
-    });
-  } else {
-    await prisma.issueClusterVote.upsert({
-      where: {
-        roadId_issueClusterKey_userId: {
-          roadId: road.id,
-          issueClusterKey: clusterKey,
-          userId: user.id,
-        },
-      },
-      create: {
-        roadId: road.id,
-        issueClusterKey: clusterKey,
-        userId: user.id,
-        kind: voteKind,
-      },
-      update: {
-        kind: voteKind,
-      },
-    });
-  }
-
-  revalidateRoadViews(road.slug);
-  revalidatePath("/account");
-}
-
 export async function voteOnObservationAction(formData: FormData) {
   const user = await requireResidentUser();
   const observationId = requiredString(formData, "observationId", "Violation");
