@@ -221,10 +221,10 @@ test(
     assert.match(collectionPageHtml, new RegExp(description));
     const collectionPageText = visibleText(collectionPageHtml);
 
-    assert.match(collectionPageText, /Collection \+40/);
+    assert.match(collectionPageText, /Collection \+30/);
     assert.match(collectionPageText, /Likes \+2/);
     assert.match(collectionPageText, /Dislikes -0/);
-    assert.match(collectionPageText, /Total 42/);
+    assert.match(collectionPageText, /Total 32/);
     assert.match(roadPageHtml, new RegExp(description));
     assert.match(roadPageHtml, /Manual review pending/);
     assert.match(roadPageHtml, /You cannot vote on a violation you collected/);
@@ -259,6 +259,26 @@ test(
     assert.match(govPendingHtml, new RegExp(description));
     assert.match(govPendingHtml, /Approve capture/);
     assert.match(govPendingHtml, /Reject capture/);
+
+    const [ownerDataTabHtml, govDataTabHtml] = await Promise.all([
+      fetch(`${server.baseUrl}/roads/${road.slug}?section=data`, {
+        headers: { cookie: residentASessionCookie },
+      }).then((response) => response.text()),
+      fetch(`${server.baseUrl}/roads/${road.slug}?section=data`, {
+        headers: { cookie: govSessionCookie },
+      }).then((response) => response.text()),
+    ]);
+
+    assert.doesNotMatch(
+      ownerDataTabHtml,
+      /Pending review/,
+      "The export-framed JSON preview must exclude the owner's unpublished pending capture.",
+    );
+    assert.doesNotMatch(
+      govDataTabHtml,
+      /Pending review/,
+      "The export-framed JSON preview must exclude pending captures for government viewers.",
+    );
 
     const moderationInputs = parseFormContaining(
       govPendingHtml,

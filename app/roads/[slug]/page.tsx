@@ -82,15 +82,17 @@ export default async function RoadDetailPage({
       communityNoteCount: communityCount,
       osmId: road.osmId,
     },
-    collectedViolations: road.collectedViolations.map((violation) => ({
-      id: violation.id,
-      issue: violation.issueLabel,
-      severity: violation.severityScore,
-      likes: violation.likeCount,
-      dislikes: violation.dislikeCount,
-      state: violation.stateLabel,
-      collectedAt: violation.submittedAt,
-    })),
+    collectedViolations: road.collectedViolations
+      .filter((violation) => violation.humanCheckStatus === "CLEARED")
+      .map((violation) => ({
+        id: violation.id,
+        issue: violation.issueLabel,
+        severity: violation.severityScore,
+        likes: violation.likeCount,
+        dislikes: violation.dislikeCount,
+        state: violation.stateLabel,
+        collectedAt: violation.submittedAt,
+      })),
     repairs: road.repairs.map((repair) => ({
       id: repair.id,
       issue: repair.issueLabel,
