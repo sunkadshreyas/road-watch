@@ -1,5 +1,6 @@
 import {
   type CommunityCategory,
+  type HumanCheckStatus,
   type IssueType,
   type IssueVoteKind,
   Prisma,
@@ -140,6 +141,13 @@ export type IssueClusterSummary = {
   viewerVote: IssueVoteKind | null;
 };
 
+export type CollectedCaptureState =
+  | "open"
+  | "monitoring"
+  | "resolved"
+  | "pending"
+  | "rejected";
+
 export type RoadTimelineItem = {
   id: string;
   kind: "observation" | "repair" | "verification";
@@ -197,7 +205,7 @@ export type RoadDetail = {
     severityScore: number;
     severityBand: SeverityBand;
     severityLabel: string;
-    state: "open" | "monitoring" | "resolved";
+    state: CollectedCaptureState;
     stateLabel: string;
     description: string;
     evidencePath: string;
@@ -357,7 +365,7 @@ export type MyComplaintDashboard = {
     severityScore: number;
     severityBand: SeverityBand;
     severityLabel: string;
-    state: "open" | "monitoring" | "resolved";
+    state: CollectedCaptureState;
     stateLabel: string;
     description: string;
     evidencePath: string;
@@ -815,6 +823,24 @@ function canViewObservation(
   );
 }
 
+function deriveCollectedCaptureState(
+  humanCheckStatus: HumanCheckStatus,
+  cluster: Pick<IssueClusterSummary, "state" | "stateLabel"> | undefined,
+): { state: CollectedCaptureState; stateLabel: string } {
+  if (humanCheckStatus === "MANUAL_REVIEW") {
+    return { state: "pending", stateLabel: "Pending review" };
+  }
+
+  if (humanCheckStatus === "REJECTED") {
+    return { state: "rejected", stateLabel: "Rejected" };
+  }
+
+  return {
+    state: cluster?.state ?? "open",
+    stateLabel: cluster?.stateLabel ?? "Open observation",
+  };
+}
+
 function buildRoadDetail(
   road: RoadAssetRecord,
   viewerUserId?: string | null,
@@ -886,6 +912,10 @@ function buildRoadDetail(
         const severityBand = getSeverityBand(observation.severityScore);
         const cluster = clustersByKey.get(observation.issueClusterKey);
         const ownerUserId = observation.receipts[0]?.userId ?? null;
+        const derivedState = deriveCollectedCaptureState(
+          observation.humanCheckStatus,
+          cluster,
+        );
 
         return {
           id: observation.id,
@@ -897,8 +927,8 @@ function buildRoadDetail(
           severityScore: observation.severityScore,
           severityBand,
           severityLabel: severityBandMeta[severityBand].label,
-          state: cluster?.state ?? "open",
-          stateLabel: cluster?.stateLabel ?? "Open observation",
+          state: derivedState.state,
+          stateLabel: derivedState.stateLabel,
           description: observation.description,
           evidencePath: observation.evidencePath,
           humanCheckStatus: observation.humanCheckStatus,
@@ -1303,6 +1333,10 @@ export async function getMyComplaintDashboard(
       (item) => item.clusterKey === receipt.observation.issueClusterKey,
     );
     const severityBand = getSeverityBand(receipt.observation.severityScore);
+    const derivedState = deriveCollectedCaptureState(
+      receipt.observation.humanCheckStatus,
+      cluster,
+    );
 
     return {
       id: receipt.id,
@@ -1315,8 +1349,8 @@ export async function getMyComplaintDashboard(
       severityScore: receipt.observation.severityScore,
       severityBand: cluster?.severityBand ?? severityBand,
       severityLabel: cluster?.severityLabel ?? severityBandMeta[severityBand].label,
-      state: cluster?.state ?? "open",
-      stateLabel: cluster?.stateLabel ?? "Open observation",
+      state: derivedState.state,
+      stateLabel: derivedState.stateLabel,
       description: receipt.observation.description,
       evidencePath: receipt.observation.evidencePath,
       humanCheckStatus: receipt.observation.humanCheckStatus,
@@ -1334,7 +1368,7 @@ export async function getMyComplaintDashboard(
   });
 
   const scoreEligibleComplaints = complaints.filter(
-    (complaint) => complaint.humanCheckStatus !== "REJECTED",
+    (complaint) => complaint.humanCheckStatus === "CLEARED",
   );
   const receivedLikeCount = scoreEligibleComplaints.reduce(
     (sum, complaint) => sum + complaint.likeCount,
@@ -1401,7 +1435,7 @@ export async function getCollectorLeaderboard(
   const entries = rankCollectorScores(
     residents.map((resident) => {
       const scoreEligibleReceipts = resident.observationReceipts.filter(
-        (receipt) => receipt.observation.humanCheckStatus !== "REJECTED",
+        (receipt) => receipt.observation.humanCheckStatus === "CLEARED",
       );
       const includedReceipts = scoreEligibleReceipts.filter((receipt) =>
         windowStart ? receipt.createdAt >= windowStart : true,

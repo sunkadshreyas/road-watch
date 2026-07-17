@@ -33,7 +33,9 @@ test(
 
     process.env.DATABASE_URL = databaseUrl;
     const { prisma } = await import("@/lib/prisma");
-    const { getMyComplaintDashboard } = await import("@/lib/data");
+    const { getCollectorLeaderboard, getMyComplaintDashboard } = await import(
+      "@/lib/data"
+    );
 
     t.after(async () => {
       await prisma.$disconnect();
@@ -202,6 +204,59 @@ test(
     assert.equal(dashboardAfterNoise.openCount, 0);
     assert.equal(complaintAfterNoise?.state, "resolved");
     assert.equal(complaintAfterNoise?.stateLabel, "Repair verified by community");
+
+    const otherDashboard = await getMyComplaintDashboard(otherResident.id);
+    const pendingComplaint = otherDashboard.complaints.find(
+      (complaint) => complaint.observationId === pendingObservation.id,
+    );
+    const rejectedComplaint = otherDashboard.complaints.find(
+      (complaint) => complaint.observationId === rejectedObservation.id,
+    );
+
+    assert.equal(
+      pendingComplaint?.state,
+      "pending",
+      "A manual-review capture must not inherit the cleared cluster's open state.",
+    );
+    assert.equal(pendingComplaint?.stateLabel, "Pending review");
+    assert.equal(rejectedComplaint?.state, "rejected");
+    assert.equal(rejectedComplaint?.stateLabel, "Rejected");
+
+    assert.equal(
+      otherDashboard.score.submittedViolationCount,
+      0,
+      "Pending and rejected captures must not add to the private collector score.",
+    );
+    assert.equal(otherDashboard.score.totalScore, 0);
+    assert.equal(otherDashboard.openCount, 0);
+    assert.equal(otherDashboard.monitoringCount, 0);
+    assert.equal(otherDashboard.resolvedCount, 0);
+
+    const leaderboard = await getCollectorLeaderboard("all");
+    const ownerEntry = leaderboard.entries.find(
+      (entry) => entry.userId === owner.id,
+    );
+    const otherEntry = leaderboard.entries.find(
+      (entry) => entry.userId === otherResident.id,
+    );
+
+    assert.equal(
+      ownerEntry?.score.submittedViolationCount,
+      1,
+      "A cleared capture should count once on the public leaderboard.",
+    );
+    assert.equal(ownerEntry?.score.totalScore, 10);
+    assert.equal(
+      otherEntry?.score.submittedViolationCount,
+      0,
+      "A resident holding only pending or rejected captures should rank at zero.",
+    );
+    assert.equal(otherEntry?.score.totalScore, 0);
+    assert.equal(
+      leaderboard.totals.collectedViolationCount,
+      1,
+      "Leaderboard totals must exclude pending and rejected captures.",
+    );
 
     const defaultedObservation = await prisma.observation.create({
       data: {

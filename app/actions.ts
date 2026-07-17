@@ -401,7 +401,7 @@ export async function createObservationAction(
 
     return {
       status: "success",
-      message: `Violation collected on ${road.name}. +10 points added to your collection.`,
+      message: `Violation collected on ${road.name}. It is pending government review, and +10 points are added once it is approved.`,
     };
   } catch (error) {
     return {
