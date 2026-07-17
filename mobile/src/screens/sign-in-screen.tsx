@@ -11,6 +11,19 @@ type SessionResponse = {
   accessToken: string;
 };
 
+const seededResidents = [
+  {
+    email: "resident-a@roadwatch.demo",
+    name: "Street Scout A",
+    id: "cmosvmckd0001a0x96kzti3b5",
+  },
+  {
+    email: "resident-b@roadwatch.demo",
+    name: "Street Scout B",
+    id: "cmosvmcke0002a0x944kgm914",
+  },
+] as const;
+
 export function SignInScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -22,8 +35,27 @@ export function SignInScreen() {
     setError(null);
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
+
+      if (process.env.EXPO_PUBLIC_DEMO_MODE === "1") {
+        const seededResident = seededResidents.find(
+          (resident) => resident.email === normalizedEmail,
+        );
+
+        if (!seededResident) {
+          throw new Error(
+            "Use resident-a@roadwatch.demo or resident-b@roadwatch.demo for the local seeded build.",
+          );
+        }
+
+        await authStorage.setAccessToken(`roadwatch-local-${seededResident.id}`);
+        const completedOnboarding = await authStorage.hasCompletedOnboarding();
+        router.replace(completedOnboarding ? "/permissions" : "/onboarding");
+        return;
+      }
+
       const session = await getApiClient().post<SessionResponse>("/auth/session", {
-        email: email.trim(),
+        email: normalizedEmail,
       });
       await authStorage.setAccessToken(session.accessToken);
       const completedOnboarding = await authStorage.hasCompletedOnboarding();
@@ -56,6 +88,11 @@ export function SignInScreen() {
       <Text selectable style={{ color: colors.muted, fontSize: 16, lineHeight: 23 }}>
         Sign in through the production identity boundary. Government accounts use the web admin.
       </Text>
+      {process.env.EXPO_PUBLIC_DEMO_MODE === "1" ? (
+        <Text selectable style={{ color: colors.accent, lineHeight: 21 }}>
+          Local seeded residents: {seededResidents.map((resident) => resident.email).join(" or ")}
+        </Text>
+      ) : null}
       <TextInput
         accessibilityLabel="Email address"
         autoCapitalize="none"

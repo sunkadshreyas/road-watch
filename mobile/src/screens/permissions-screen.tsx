@@ -33,6 +33,10 @@ export function PermissionsScreen() {
     }
   }
 
+  function openCamera() {
+    router.dismissTo("/");
+  }
+
   return (
     <ScreenShell
       eyebrow="Permission recovery"
@@ -51,7 +55,7 @@ export function PermissionsScreen() {
       />
       <PrimaryButton
         label={ready ? "Open camera" : "Request required permissions"}
-        onPress={ready ? () => router.dismissTo("/") : requestRequiredPermissions}
+        onPress={ready ? openCamera : requestRequiredPermissions}
         busy={busy}
       />
       {!ready &&

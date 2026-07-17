@@ -15,6 +15,13 @@ npm start
 
 Set `EXPO_PUBLIC_API_URL` to the deployed Next.js backend origin. It is a public build-time value and must not contain credentials.
 
+For an unsigned local iOS simulator build, set `EXPO_PUBLIC_DEMO_MODE=1`. The first launch still asks for a resident sign-in, using one of the seeded profiles:
+
+- `resident-a@roadwatch.demo`
+- `resident-b@roadwatch.demo`
+
+Production builds always use the configured identity provider and SecureStore.
+
 ## Verification available without Expo packages
 
 From the repository root:

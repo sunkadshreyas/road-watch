@@ -49,9 +49,12 @@ export function LaunchGate() {
           router.replace(destination);
         }
       })
-      .catch(() => {
+      .catch((error) => {
+        if (__DEV__) {
+          console.warn("RoadWatch launch verification failed", error);
+        }
         if (active) {
-          router.replace("/permissions");
+          router.replace("/sign-in");
         }
       });
 
