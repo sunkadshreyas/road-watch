@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { MapPin, Radio, Wrench } from "lucide-react";
 import { notFound } from "next/navigation";
 
+import { CollectedViolationList } from "@/components/collected-violation-list";
 import { DashboardMap } from "@/components/dashboard-map";
-import { LiveObservationForm } from "@/components/live-observation-form";
+import { NearbyRoadPicker } from "@/components/nearby-road-picker";
 import { PublicRecordList } from "@/components/public-record-list";
 import { getSessionUser } from "@/lib/auth";
 import { getRoadAssetOptions, getRoadDetail, getWardDashboard } from "@/lib/data";
@@ -38,49 +40,47 @@ export default async function ReportIssuePage({
     roadOptions.find((road) => road.slug === requestedRoad) ??
     roadOptions.find((road) => road.assetType === "ROAD") ??
     roadOptions[0];
-  const road = await getRoadDetail(selectedRoadOption.slug, user?.id ?? null);
+  const road = await getRoadDetail(
+    selectedRoadOption.slug,
+    user?.id ?? null,
+    user?.role === "GOV",
+  );
   const displayIssueClusters = road.issueClusters;
   const canSubmitObservation = user?.role !== "GOV";
   const canVoteOnComplaints = user?.role === "RESIDENT";
   const voteMessage = user?.role === "GOV"
-    ? "Government accounts cannot vote on complaints."
+    ? "Government accounts cannot vote on violations."
     : "Sign in as a resident to support this issue or flag it as false.";
-  const flowLabel = canSubmitObservation ? "Resident flow" : "Government review";
-  const introText = canSubmitObservation
-    ? "Capture a live image, describe the issue, and add it directly to this public road record. The observation stays attached to the road or footpath, not to your identity."
-    : "Inspect the public record for this road or footpath, review the existing evidence, and continue into the repair workflow. Government-labelled accounts do not create new public observations.";
-
-  const mapPanel = (
-    <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-5 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
-      <DashboardMap
-        roads={dashboard.roads.map((item) => ({
-          slug: item.slug,
-          name: item.name,
-          assetType: item.assetType,
-          conditionScore: item.conditionScore,
-          openIssueCount: item.openIssueCount,
-          geometry: item.geometry,
-          centerLat: item.centerLat,
-          centerLng: item.centerLng,
-        }))}
-        boundary={dashboard.ward.boundary}
-        center={[dashboard.ward.centerLng, dashboard.ward.centerLat]}
-        selectedSlug={road.slug}
-      />
-    </div>
-  );
+  const flowLabel = canSubmitObservation && user?.role === "RESIDENT"
+    ? "Resident capture"
+    : canSubmitObservation
+      ? "Anonymous capture"
+    : user?.role === "GOV"
+      ? "Government repair crew"
+      : "Public street view";
 
   return (
     <div className="space-y-8">
-      <section className="grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
+      <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-6 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
-          <p className="eyebrow text-slate-500">
+          <p className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+            {canSubmitObservation || user?.role == null ? (
+              <Radio className="h-4 w-4 text-teal-700" aria-hidden="true" />
+            ) : (
+              <Wrench className="h-4 w-4 text-amber-700" aria-hidden="true" />
+            )}
             {flowLabel} · {road.assetLabel}
           </p>
-          <h2 className="mt-2 font-[family:var(--font-display)] text-5xl font-semibold text-slate-950">
+          <h2 className="mt-2 font-[family:var(--font-display)] text-4xl font-semibold text-slate-950 sm:text-5xl">
             {road.name}
           </h2>
-          <p className="mt-4 max-w-2xl text-base leading-8 text-slate-600">{introText}</p>
+
+          {canSubmitObservation ? (
+            <NearbyRoadPicker
+              roads={roadOptions}
+              selectedSlug={selectedRoadOption.slug}
+            />
+          ) : null}
 
           <form action="/report" className="mt-6 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
             <label className="block space-y-2">
@@ -100,102 +100,59 @@ export default async function ReportIssuePage({
 
             <button
               type="submit"
-              className="inline-flex items-center justify-center rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
+              <MapPin className="h-4 w-4" aria-hidden="true" />
               Switch record
             </button>
           </form>
-
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Link
-              href={`/roads/${road.slug}`}
-              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white"
-            >
-              Open full road record
-            </Link>
-          </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
-          <div className="rounded-[1.6rem] border border-slate-200 bg-white/82 p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.4)] backdrop-blur">
-            <p className="eyebrow text-slate-500">Open issues</p>
-            <p className="mt-2 font-[family:var(--font-display)] text-4xl font-semibold text-slate-950">
-              {road.openIssueCount}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              Current unresolved issue clusters on this record.
-            </p>
-          </div>
-          <div className="rounded-[1.6rem] border border-slate-200 bg-white/82 p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.4)] backdrop-blur">
-            <p className="eyebrow text-slate-500">Under monitoring</p>
-            <p className="mt-2 font-[family:var(--font-display)] text-4xl font-semibold text-slate-950">
-              {road.monitoringIssueCount}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              Repairs waiting for the public to confirm whether they held.
-            </p>
-          </div>
-          <div className="rounded-[1.6rem] border border-slate-200 bg-white/82 p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.4)] backdrop-blur">
-            <p className="eyebrow text-slate-500">Public observations</p>
-            <p className="mt-2 font-[family:var(--font-display)] text-4xl font-semibold text-slate-950">
-              {road.publicObservationCount}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              Anonymous reports already attached to this road or footpath.
-            </p>
-          </div>
-          <div className="rounded-[1.6rem] border border-slate-200 bg-white/82 p-4 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.4)] backdrop-blur">
-            <p className="eyebrow text-slate-500">Repair updates</p>
-            <p className="mt-2 font-[family:var(--font-display)] text-4xl font-semibold text-slate-950">
-              {road.repairs.length}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              Government updates and public verification activity on this record.
-            </p>
-          </div>
+        <div className="rounded-[2rem] border border-slate-200 bg-white/82 p-4 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
+          <DashboardMap
+            roads={dashboard.roads.map((item) => ({
+              slug: item.slug,
+              name: item.name,
+              assetType: item.assetType,
+              conditionScore: item.conditionScore,
+              openIssueCount: item.openIssueCount,
+              geometry: item.geometry,
+              centerLat: item.centerLat,
+              centerLng: item.centerLng,
+            }))}
+            boundary={dashboard.ward.boundary}
+            center={[dashboard.ward.centerLng, dashboard.ward.centerLat]}
+            selectedSlug={road.slug}
+          />
         </div>
       </section>
 
-      {canSubmitObservation ? (
-        <LiveObservationForm roadId={road.id} roadName={road.name} />
-      ) : (
-        <section className="rounded-[2rem] border border-slate-200 bg-white/82 p-6 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
-          <p className="eyebrow text-slate-500">Government flow</p>
-          <h3 className="mt-2 font-[family:var(--font-display)] text-3xl font-semibold text-slate-950">
-            Government-labelled accounts review requests instead of creating them.
-          </h3>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-            Use the road record to inspect public observations, then move to the history tab to
-            review pending complaints and open a dedicated repair form for the issue you want to
-            update. Sign out or switch to a resident profile if you need to test anonymous issue
-            submission.
-          </p>
-          <div className="mt-5 flex flex-wrap gap-3">
-            <Link
-              href={`/roads/${road.slug}?section=history`}
-              className="inline-flex items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              Review pending complaints
-            </Link>
-            <Link
-              href={`/roads/${road.slug}`}
-              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white"
-            >
-              Open full road record
-            </Link>
-          </div>
-        </section>
-      )}
+      <section className="rounded-[2rem] border border-slate-200 bg-white/82 p-6 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
+        <p className="eyebrow text-slate-500">Native capture</p>
+        <h3 className="mt-2 font-[family:var(--font-display)] text-3xl font-semibold text-slate-950">
+          Capture road issues in the RoadWatch mobile app.
+        </h3>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+          The web record remains available for browsing, review, and repair history. Camera and location capture now belong exclusively to the Expo iOS and Android app.
+        </p>
+        <Link
+          href={`/roads/${road.slug}`}
+          className="mt-5 inline-flex items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+        >
+          Open full road record
+        </Link>
+      </section>
 
-      <PublicRecordList
-        roadId={road.id}
-        roadName={road.name}
-        clusters={displayIssueClusters}
+      <CollectedViolationList
+        violations={road.collectedViolations}
         canVote={canVoteOnComplaints}
+        canModerate={user?.role === "GOV"}
         voteMessage={voteMessage}
       />
 
-      {mapPanel}
+      <PublicRecordList
+        clusters={displayIssueClusters}
+      />
     </div>
   );
 }

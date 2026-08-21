@@ -1,7 +1,7 @@
 import "dotenv/config";
 
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient({
   adapter: new PrismaBetterSqlite3({
@@ -24,6 +24,7 @@ function polygon(coordinates: Array<[number, number]>) {
 }
 
 async function main() {
+  await prisma.observationVote.deleteMany();
   await prisma.issueClusterVote.deleteMany();
   await prisma.repairVerification.deleteMany();
   await prisma.repairEvent.deleteMany();
@@ -44,6 +45,8 @@ async function main() {
       osmReference: "OpenStreetMap sample geometry derived for Indiranagar demo ward",
       centerLat: 12.9738,
       centerLng: 77.6427,
+      authorityLabel: "BBMP Ward 94 civic desk",
+      authoritySource: "Seeded ward boundary fixture",
       boundaryGeoJson: polygon([
         [77.6373, 12.9789],
         [77.6488, 12.9789],
@@ -55,26 +58,29 @@ async function main() {
 
   const residentA = await prisma.user.create({
     data: {
+      id: "cmosvmckd0001a0x96kzti3b5",
       wardId: ward.id,
       email: "resident-a@roadwatch.demo",
       name: "Resident Desk A",
-      publicLabel: "Resident note",
+      publicLabel: "Street Scout A",
       role: "RESIDENT",
     },
   });
 
   const residentB = await prisma.user.create({
     data: {
+      id: "cmosvmcke0002a0x944kgm914",
       wardId: ward.id,
       email: "resident-b@roadwatch.demo",
       name: "Resident Desk B",
-      publicLabel: "Resident note",
+      publicLabel: "Street Scout B",
       role: "RESIDENT",
     },
   });
 
   const engineer = await prisma.user.create({
     data: {
+      id: "cmosvmckg0003a0x9w00v5n90",
       wardId: ward.id,
       email: "engineer@roadwatch.demo",
       name: "Ward Engineer",
@@ -222,7 +228,8 @@ async function main() {
   });
 
   await prisma.observation.createMany({
-    data: [
+    data: (
+      [
       {
         roadId: hundredFeetRoad.id,
         issueType: "POTHOLE",
@@ -419,7 +426,11 @@ async function main() {
         evidenceCapturedAt: new Date("2026-01-15T12:05:00.000Z"),
         createdAt: new Date("2026-01-15T12:05:00.000Z"),
       },
-    ],
+      ] satisfies Prisma.ObservationCreateManyInput[]
+    ).map((observation) => ({
+      ...observation,
+      humanCheckStatus: "CLEARED" as const,
+    })),
   });
 
   const [
@@ -487,6 +498,32 @@ async function main() {
         observationId: cartStackObservation.id,
         userId: residentB.id,
         createdAt: cartStackObservation.createdAt,
+      },
+    ],
+  });
+
+  await prisma.observationVote.createMany({
+    data: [
+      {
+        observationId: latestBusBayObservation.id,
+        userId: residentB.id,
+        kind: "LIKE",
+        createdAt: latestBusBayObservation.createdAt,
+        updatedAt: latestBusBayObservation.createdAt,
+      },
+      {
+        observationId: schoolGateObservation.id,
+        userId: residentB.id,
+        kind: "LIKE",
+        createdAt: schoolGateObservation.createdAt,
+        updatedAt: schoolGateObservation.createdAt,
+      },
+      {
+        observationId: eastLightingObservation.id,
+        userId: residentA.id,
+        kind: "DISLIKE",
+        createdAt: eastLightingObservation.createdAt,
+        updatedAt: eastLightingObservation.createdAt,
       },
     ],
   });
@@ -723,6 +760,7 @@ async function main() {
         ]),
         eventTypesJson: JSON.stringify([
           "observation",
+          "vote",
           "repair",
           "verification",
         ]),
@@ -741,6 +779,7 @@ async function main() {
         ]),
         eventTypesJson: JSON.stringify([
           "observation",
+          "vote",
           "repair",
           "verification",
         ]),

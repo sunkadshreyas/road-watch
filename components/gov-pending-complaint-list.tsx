@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { severityBandMeta, toneClasses } from "@/lib/constants";
 import type { IssueClusterSummary } from "@/lib/data";
+import { sortPendingComplaintClusters } from "@/lib/gov-queue";
 import { cn, formatDate } from "@/lib/utils";
 
 type GovPendingComplaintListProps = {
@@ -11,21 +12,12 @@ type GovPendingComplaintListProps = {
   clusters: IssueClusterSummary[];
 };
 
-function sortClusters(left: IssueClusterSummary, right: IssueClusterSummary) {
-  return (
-    right.likeCount - left.likeCount ||
-    right.priorityScore - left.priorityScore ||
-    right.severityScore - left.severityScore ||
-    new Date(right.lastUpdatedAt).getTime() - new Date(left.lastUpdatedAt).getTime()
-  );
-}
-
 export function GovPendingComplaintList({
   roadSlug,
   roadName,
   clusters,
 }: GovPendingComplaintListProps) {
-  const sortedClusters = [...clusters].sort(sortClusters);
+  const sortedClusters = sortPendingComplaintClusters(clusters);
 
   return (
     <section className="rounded-[2rem] border border-slate-200 bg-white/82 p-5 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
@@ -33,12 +25,12 @@ export function GovPendingComplaintList({
         <div>
           <p className="eyebrow text-slate-500">Government review</p>
           <h3 className="mt-1 font-[family:var(--font-display)] text-3xl font-semibold text-slate-950">
-            Pending complaints
+            Pending violations
           </h3>
         </div>
         <p className="max-w-xl text-sm leading-7 text-slate-600">
-          Open a complaint to review its image, history, and submit the repair update from a
-          dedicated form. The queue is sorted by public support first, then by priority.
+          Open a violation to review its image, history, and submit the repair update from a
+          dedicated form. The queue is sorted by repair priority, then by severity.
         </p>
       </div>
 
@@ -82,8 +74,6 @@ export function GovPendingComplaintList({
                   </p>
 
                   <div className="flex flex-wrap gap-3 text-xs text-slate-500">
-                    <span>{cluster.likeCount} likes</span>
-                    <span>{cluster.dislikeCount} dislikes</span>
                     <span>priority {cluster.priorityScore}</span>
                     <span>severity {cluster.severityScore}</span>
                     <span>{cluster.recurrenceCount} reports</span>
@@ -99,7 +89,7 @@ export function GovPendingComplaintList({
                         <p className="mt-2">{cluster.latestRepairNote}</p>
                       </>
                     ) : (
-                      <p>No government update has been recorded for this complaint yet.</p>
+                      <p>No government update has been recorded for this violation yet.</p>
                     )}
                   </div>
 
@@ -110,13 +100,14 @@ export function GovPendingComplaintList({
 
                 <div className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white">
                   <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Complaint photo
+                    Violation photo
                   </div>
                   <Image
                     src={cluster.latestEvidencePath}
-                    alt={`${cluster.issueLabel} complaint on ${roadName}`}
+                    alt={`${cluster.issueLabel} violation on ${roadName}`}
                     width={1200}
                     height={900}
+                    unoptimized={cluster.latestEvidencePath.startsWith("/api/observations/")}
                     className="aspect-[4/3] h-full w-full object-cover"
                     sizes="(max-width: 1280px) 100vw, 288px"
                   />
@@ -126,7 +117,7 @@ export function GovPendingComplaintList({
           ))
         ) : (
           <div className="rounded-[1.35rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-            No pending complaints remain on this road right now.
+            No pending violations remain on this road right now.
           </div>
         )}
       </div>

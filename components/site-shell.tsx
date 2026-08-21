@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Camera, Trophy, UserCircle, Wrench } from "lucide-react";
 
 import { logoutAction } from "@/app/actions";
 
@@ -15,26 +16,27 @@ export function SiteShell({ user, children }: SiteShellProps) {
     user?.role === "GOV"
       ? [
           { href: "/", label: "Overview" },
+          { href: "/moderation", label: "Review queue" },
           { href: "/rankings", label: "Rankings" },
           { href: "/insights", label: "Insights" },
         ]
       : user?.role === "RESIDENT"
         ? [
             { href: "/", label: "Overview" },
-            { href: "/my-complaints", label: "My complaints" },
+            { href: "/collection", label: "My collection" },
+            { href: "/leaderboard", label: "Leaderboard" },
           ]
         : [{ href: "/", label: "Overview" }];
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(15,118,110,0.16),_transparent_36%),radial-gradient(circle_at_top_right,_rgba(217,119,6,0.16),_transparent_28%),linear-gradient(180deg,_#f7f3eb_0%,_#f1ede4_52%,_#ece9df_100%)] text-slate-900">
-      <div className="absolute inset-x-0 top-0 h-72 bg-[linear-gradient(135deg,_rgba(15,23,42,0.04)_25%,_transparent_25%,_transparent_50%,_rgba(15,23,42,0.04)_50%,_rgba(15,23,42,0.04)_75%,_transparent_75%,_transparent)] bg-[length:48px_48px] opacity-35" />
+    <div className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.16),_transparent_34%),radial-gradient(circle_at_top_right,_rgba(244,63,94,0.12),_transparent_26%),linear-gradient(180deg,_#f7f3eb_0%,_#eef6f1_44%,_#ece9df_100%)] text-slate-900">
       <div className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 pb-16 pt-4 sm:px-6 lg:px-8">
         <header className="sticky top-4 z-20 mb-8 rounded-[2rem] border border-white/70 bg-white/70 px-5 py-4 shadow-[0_20px_60px_-32px_rgba(15,23,42,0.5)] backdrop-blur md:px-6">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center justify-between gap-4">
               <Link href="/" className="space-y-1">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700">
-                  Civic Infrastructure Intelligence
+                  RoadWatch
                 </p>
                 <h1 className="font-[family:var(--font-display)] text-2xl font-semibold tracking-tight text-slate-950">
                   RoadWatch
@@ -65,10 +67,11 @@ export function SiteShell({ user, children }: SiteShellProps) {
                   href="/account"
                   className={
                     user
-                      ? "inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white"
-                      : "inline-flex items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                      ? "inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white"
+                      : "inline-flex items-center justify-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
                   }
                 >
+                  <UserCircle className="h-4 w-4" aria-hidden="true" />
                   {user ? "Account" : "Sign in"}
                 </Link>
               </div>
@@ -78,21 +81,22 @@ export function SiteShell({ user, children }: SiteShellProps) {
                   {user.role === "RESIDENT" ? (
                     <Link
                       href="/report"
-                      className="inline-flex items-center justify-center rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-500"
+                      className="inline-flex items-center justify-center gap-2 rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-500"
                     >
-                      Report issue
+                      <Camera className="h-4 w-4" aria-hidden="true" />
+                      Collect violation
                     </Link>
                   ) : null}
-                  <div className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 sm:block">
+                  <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 sm:flex">
+                    {user.role === "GOV" ? (
+                      <Wrench className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <Trophy className="h-4 w-4" aria-hidden="true" />
+                    )}
                     {user.role === "GOV" ? "Gov label" : "Resident access"}
                   </div>
                   <div className="min-w-0 text-left sm:text-right">
                     <p className="truncate text-sm font-semibold text-slate-900">{user.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {user.role === "GOV"
-                        ? "Can review requests and record repairs"
-                        : "Public complaints stay anonymous. Your own list stays private."}
-                    </p>
                   </div>
                   <form action={logoutAction}>
                     <input type="hidden" name="redirectTo" value="/account" />
@@ -106,14 +110,12 @@ export function SiteShell({ user, children }: SiteShellProps) {
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center justify-end gap-3">
-                  <p className="text-sm text-slate-600">
-                    Sign in for discussions, RSS subscriptions, voting, and government review.
-                  </p>
                   <Link
-                    href="/report"
-                    className="inline-flex items-center justify-center rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-500"
+                    href="/account"
+                    className="inline-flex items-center justify-center gap-2 rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-500"
                   >
-                    Report issue
+                    <UserCircle className="h-4 w-4" aria-hidden="true" />
+                    Choose account
                   </Link>
                 </div>
               )}
@@ -123,11 +125,7 @@ export function SiteShell({ user, children }: SiteShellProps) {
 
         <main className="flex-1">{children}</main>
 
-        <footer className="mt-12 rounded-[2rem] border border-white/70 bg-white/70 px-5 py-5 text-sm text-slate-600 shadow-[0_16px_48px_-32px_rgba(15,23,42,0.4)] backdrop-blur">
-          <p>
-            Road records stay public. Observations stay anonymous. Repairs and repeat failures stay traceable.
-          </p>
-        </footer>
+        <footer className="mt-12 text-sm text-slate-500">RoadWatch</footer>
       </div>
     </div>
   );

@@ -1,7 +1,9 @@
 import {
   type CommunityCategory,
+  type HumanCheckStatus,
   type IssueType,
   type IssueVoteKind,
+  type ObservationSource,
   Prisma,
   type RepairStatus,
   type VerificationVerdict,
@@ -18,6 +20,17 @@ import {
   type SeverityBand,
   verificationVerdictMeta,
 } from "@/lib/constants";
+import {
+  calculateCollectorScore,
+  getCollectorBadges,
+  type CollectorBadge,
+  getCollectorLevelProgress,
+  type CollectorLevelProgress,
+  type CollectorScoreBreakdown,
+  getLeaderboardWindowStart,
+  type LeaderboardWindow,
+  rankCollectorScores,
+} from "@/lib/collector-score";
 import { prisma } from "@/lib/prisma";
 import {
   clamp,
@@ -31,6 +44,10 @@ const roadAssetInclude = Prisma.validator<Prisma.RoadAssetInclude>()({
   observations: {
     orderBy: {
       createdAt: "asc",
+    },
+    include: {
+      receipts: true,
+      votes: true,
     },
   },
   repairs: {
@@ -63,6 +80,17 @@ const roadAssetInclude = Prisma.validator<Prisma.RoadAssetInclude>()({
     },
   },
   subscriptions: true,
+  ratings: true,
+  sourceEvents: {
+    orderBy: {
+      observedAt: "desc",
+    },
+  },
+  segments: {
+    orderBy: {
+      sequence: "asc",
+    },
+  },
 });
 
 type RoadAssetRecord = Prisma.RoadAssetGetPayload<{
@@ -72,6 +100,7 @@ type RoadAssetRecord = Prisma.RoadAssetGetPayload<{
 const observationReceiptInclude = Prisma.validator<Prisma.ObservationReceiptInclude>()({
   observation: {
     include: {
+      votes: true,
       road: {
         include: roadAssetInclude,
       },
@@ -122,7 +151,16 @@ export type IssueClusterSummary = {
   likeCount: number;
   dislikeCount: number;
   viewerVote: IssueVoteKind | null;
+  sourceLabels?: string[];
+  sourceCount?: number;
 };
+
+export type CollectedCaptureState =
+  | "open"
+  | "monitoring"
+  | "resolved"
+  | "pending"
+  | "rejected";
 
 export type RoadTimelineItem = {
   id: string;
@@ -139,6 +177,22 @@ export type ConditionPoint = {
   at: string;
   label: string;
   score: number;
+};
+
+export type ConditionBreakdown = {
+  baseline: number;
+  distressPenalty: number;
+  repairRecovery: number;
+  verificationAdjustment: number;
+  score: number;
+  explanation: string;
+};
+
+export type CommuterRating = {
+  average: number | null;
+  count: number;
+  distribution: Record<1 | 2 | 3 | 4 | 5, number>;
+  viewerRating: number | null;
 };
 
 export type RoadDetail = {
@@ -161,6 +215,30 @@ export type RoadDetail = {
     coordinates: Array<[number, number]>;
   };
   conditionScore: number;
+  conditionBreakdown: ConditionBreakdown;
+  dataConfidence: {
+    level: "low" | "medium" | "high";
+    independentSources: number;
+    clearedObservations: number;
+    importedSourceEvents: number;
+    explanation: string;
+  };
+  commuterRating: CommuterRating;
+  authority: {
+    label: string;
+    source: string | null;
+  };
+  sourceEvents: Array<{
+    id: string;
+    source: ObservationSource;
+    sourceLabel: string;
+    sourceReference: string | null;
+    title: string;
+    description: string;
+    observedAt: string;
+    segmentSequence: number | null;
+  }>;
+  segmentCount: number;
   budgetNeedInr: number;
   priorityScore: number;
   verifiedFixRate: number;
@@ -171,6 +249,32 @@ export type RoadDetail = {
   repeatIssueCount: number;
   repeatWasteInr: number;
   issueClusters: IssueClusterSummary[];
+  collectedViolations: Array<{
+    id: string;
+    roadId: string;
+    roadSlug: string;
+    roadName: string;
+    issueType: IssueType;
+    issueLabel: string;
+    severityScore: number;
+    severityBand: SeverityBand;
+    severityLabel: string;
+    state: CollectedCaptureState;
+    stateLabel: string;
+    description: string;
+    evidencePath: string;
+    humanCheckStatus: "CLEARED" | "REJECTED" | "MANUAL_REVIEW";
+    gpsLat: number;
+    gpsLng: number;
+    submittedAt: string;
+    likeCount: number;
+    dislikeCount: number;
+    viewerVote: IssueVoteKind | null;
+    isOwnCollection: boolean;
+    source: string;
+    sourceLabel: string;
+    sourceReference: string | null;
+  }>;
   conditionHistory: ConditionPoint[];
   timeline: RoadTimelineItem[];
   repairs: Array<{
@@ -301,6 +405,9 @@ export type AccountDashboard = {
 
 export type MyComplaintDashboard = {
   totalCount: number;
+  score: CollectorScoreBreakdown;
+  levelProgress: CollectorLevelProgress;
+  badges: CollectorBadge[];
   openCount: number;
   monitoringCount: number;
   resolvedCount: number;
@@ -315,22 +422,66 @@ export type MyComplaintDashboard = {
     severityScore: number;
     severityBand: SeverityBand;
     severityLabel: string;
-    state: "open" | "monitoring" | "resolved";
+    state: CollectedCaptureState;
     stateLabel: string;
     description: string;
     evidencePath: string;
+    humanCheckStatus: "CLEARED" | "REJECTED" | "MANUAL_REVIEW";
+    gpsLat: number;
+    gpsLng: number;
     submittedAt: string;
     latestRepairStatus: string | null;
     latestRepairNote: string | null;
     latestRepairProofPath: string | null;
     latestRepairRecordedAt: string | null;
     latestVerificationLabel: string | null;
+    likeCount: number;
+    dislikeCount: number;
   }>;
+};
+
+export type CollectorLeaderboard = {
+  window: LeaderboardWindow;
+  entries: Array<{
+    rank: number;
+    userId: string;
+    publicLabel: string;
+    score: CollectorScoreBreakdown;
+  }>;
+  totals: {
+    residentCount: number;
+    collectedViolationCount: number;
+    likeCount: number;
+    dislikeCount: number;
+  };
+};
+
+export type PendingModerationCapture = {
+  id: string;
+  roadSlug: string;
+  roadName: string;
+  assetLabel: string;
+  issueType: IssueType;
+  issueLabel: string;
+  severityScore: number;
+  severityBand: SeverityBand;
+  severityLabel: string;
+  description: string;
+  evidencePath: string;
+  gpsLat: number;
+  gpsLng: number;
+  submittedAt: string;
+  collectorLabel: string | null;
+};
+
+export type PendingModerationQueue = {
+  totalCount: number;
+  captures: PendingModerationCapture[];
 };
 
 export type ExportRow = {
   recordedAt: string;
-  eventType: "observation" | "repair" | "verification";
+  eventType: "observation" | "vote" | "repair" | "verification";
   roadName: string;
   roadSlug: string;
   clusterKey: string;
@@ -514,6 +665,102 @@ function buildConditionHistory(road: RoadAssetRecord) {
   });
 }
 
+function buildConditionBreakdown(
+  road: RoadAssetRecord,
+  conditionHistory: ConditionPoint[],
+): ConditionBreakdown {
+  const baseline = clamp(92 - (road.importanceScore - 1) * 2, 40, 96);
+  const distressPenalty = road.observations.reduce(
+    (total, observation) =>
+      total + Math.abs(
+        conditionDeltaFromObservation(
+          observation.severityScore,
+          observation.impactScore,
+          observation.issueType,
+        ),
+      ),
+    0,
+  );
+  const repairRecovery = road.repairs.reduce(
+    (total, repair) => total + conditionDeltaFromRepair(repair.status, road.importanceScore),
+    0,
+  );
+  const verificationAdjustment = road.repairs.reduce(
+    (total, repair) =>
+      total + repair.verifications.reduce(
+        (verificationTotal, verification) =>
+          verificationTotal + conditionDeltaFromVerification(verification.verdict),
+        0,
+      ),
+    0,
+  );
+  const score = conditionHistory.at(-1)?.score ?? baseline;
+
+  return {
+    baseline,
+    distressPenalty,
+    repairRecovery,
+    verificationAdjustment,
+    score,
+    explanation:
+      "The score starts from the road baseline, subtracts cleared distress observations, then applies repair and verification updates. It is an explainable RoadWatch heuristic, not a PCI measurement.",
+  };
+}
+
+function buildDataConfidence(
+  road: RoadAssetRecord,
+  importedSourceEvents: RoadAssetRecord["sourceEvents"],
+) {
+  const independentSources = new Set([
+    ...road.observations.map((observation) => observation.source),
+    ...importedSourceEvents.map((event) => event.source),
+  ]).size;
+  const clearedObservations = road.observations.length;
+  const importedEventCount = importedSourceEvents.length;
+  const totalEvidenceItems = clearedObservations + importedEventCount;
+  const level =
+    independentSources >= 3 || (independentSources >= 2 && totalEvidenceItems >= 3)
+      ? "high"
+      : independentSources >= 2 || totalEvidenceItems >= 2
+        ? "medium"
+        : "low";
+
+  return {
+    level,
+    independentSources,
+    clearedObservations,
+    importedSourceEvents: importedEventCount,
+    explanation:
+      independentSources > 1
+        ? `${independentSources} independent evidence sources currently support this record, including ${importedEventCount} imported event${importedEventCount === 1 ? "" : "s"}.`
+        : "This record currently relies on one evidence source; treat the score as provisional.",
+  } as const;
+}
+
+function buildCommuterRating(road: RoadAssetRecord, viewerUserId?: string | null): CommuterRating {
+  const distribution: Record<1 | 2 | 3 | 4 | 5, number> = {
+    1: 0,
+    2: 0,
+    3: 0,
+    4: 0,
+    5: 0,
+  };
+
+  for (const rating of road.ratings) {
+    if (rating.value >= 1 && rating.value <= 5) {
+      distribution[rating.value as 1 | 2 | 3 | 4 | 5] += 1;
+    }
+  }
+
+  const count = road.ratings.length;
+  return {
+    average: count ? Math.round((road.ratings.reduce((total, rating) => total + rating.value, 0) / count) * 10) / 10 : null,
+    count,
+    distribution,
+    viewerRating: road.ratings.find((rating) => rating.userId === viewerUserId)?.value ?? null,
+  };
+}
+
 function buildCommunityBuckets(road: RoadAssetRecord): CommunityBuckets {
   const buckets: CommunityBuckets = {
     DISCUSSION: [],
@@ -658,6 +905,10 @@ function buildIssueClusters(road: RoadAssetRecord, viewerUserId?: string | null)
       likeCount: votes.filter((vote) => vote.kind === "LIKE").length,
       dislikeCount: votes.filter((vote) => vote.kind === "DISLIKE").length,
       viewerVote: votes.find((vote) => vote.userId === viewerUserId)?.kind ?? null,
+      sourceLabels: [
+        ...new Set(observations.map((observation) => observation.sourceLabel ?? observation.source)),
+      ],
+      sourceCount: new Set(observations.map((observation) => observation.source)).size,
     });
   }
 
@@ -717,10 +968,58 @@ function buildTimeline(road: RoadAssetRecord): RoadTimelineItem[] {
   );
 }
 
-function buildRoadDetail(road: RoadAssetRecord, viewerUserId?: string | null): RoadDetail {
-  const geometry = parseGeometry(road.geometryGeoJson);
-  const issueClusters = buildIssueClusters(road, viewerUserId);
-  const conditionHistory = buildConditionHistory(road);
+function canViewObservation(
+  observation: RoadAssetRecord["observations"][number],
+  viewerUserId?: string | null,
+  canModerate = false,
+) {
+  return (
+    observation.humanCheckStatus === "CLEARED" ||
+    canModerate ||
+    observation.receipts.some((receipt) => receipt.userId === viewerUserId)
+  );
+}
+
+function deriveCollectedCaptureState(
+  humanCheckStatus: HumanCheckStatus,
+  cluster: Pick<IssueClusterSummary, "state" | "stateLabel"> | undefined,
+): { state: CollectedCaptureState; stateLabel: string } {
+  if (humanCheckStatus === "MANUAL_REVIEW") {
+    return { state: "pending", stateLabel: "Pending review" };
+  }
+
+  if (humanCheckStatus === "REJECTED") {
+    return { state: "rejected", stateLabel: "Rejected" };
+  }
+
+  return {
+    state: cluster?.state ?? "open",
+    stateLabel: cluster?.stateLabel ?? "Open observation",
+  };
+}
+
+function buildRoadDetail(
+  road: RoadAssetRecord,
+  viewerUserId?: string | null,
+  canModerate = false,
+): RoadDetail {
+  const visibleRoad: RoadAssetRecord = {
+    ...road,
+    observations: road.observations.filter((observation) =>
+      canViewObservation(observation, viewerUserId, canModerate),
+    ),
+  };
+  const clearedRoad: RoadAssetRecord = {
+    ...road,
+    observations: road.observations.filter(
+      (observation) => observation.humanCheckStatus === "CLEARED",
+    ),
+  };
+  const geometry = parseGeometry(visibleRoad.geometryGeoJson);
+  const issueClusters = buildIssueClusters(clearedRoad, viewerUserId);
+  const clustersByKey = new Map(issueClusters.map((cluster) => [cluster.clusterKey, cluster]));
+  const conditionHistory = buildConditionHistory(clearedRoad);
+  const conditionBreakdown = buildConditionBreakdown(clearedRoad, conditionHistory);
   const openIssues = issueClusters.filter((cluster) => cluster.state === "open");
   const monitoringIssues = issueClusters.filter(
     (cluster) => cluster.state === "monitoring",
@@ -728,7 +1027,7 @@ function buildRoadDetail(road: RoadAssetRecord, viewerUserId?: string | null): R
   const repeatIssues = issueClusters.filter(
     (cluster) => cluster.recurrenceCount >= 3 || cluster.repairCount >= 2,
   );
-  const verifications = road.repairs.flatMap((repair) => repair.verifications);
+  const verifications = visibleRoad.repairs.flatMap((repair) => repair.verifications);
   return {
     id: road.id,
     slug: road.slug,
@@ -745,8 +1044,26 @@ function buildRoadDetail(road: RoadAssetRecord, viewerUserId?: string | null): R
     centerLat: road.centerLat,
     centerLng: road.centerLng,
     geometry,
-    conditionScore:
-      conditionHistory.at(-1)?.score ?? clamp(92 - road.importanceScore * 2, 40, 96),
+    conditionScore: conditionBreakdown.score,
+    conditionBreakdown,
+    dataConfidence: buildDataConfidence(clearedRoad, road.sourceEvents),
+    commuterRating: buildCommuterRating(road, viewerUserId),
+    authority: {
+      label: road.ward.authorityLabel ?? road.ward.name,
+      source: road.ward.authoritySource,
+    },
+    sourceEvents: road.sourceEvents.map((event) => ({
+      id: event.id,
+      source: event.source,
+      sourceLabel: event.sourceLabel,
+      sourceReference: event.sourceReference,
+      title: event.title,
+      description: event.description,
+      observedAt: event.observedAt.toISOString(),
+      segmentSequence:
+        road.segments.find((segment) => segment.id === event.segmentId)?.sequence ?? null,
+    })),
+    segmentCount: road.segments.length,
     budgetNeedInr: openIssues.reduce(
       (sum, cluster) => sum + cluster.estimatedCostInr,
       0,
@@ -757,7 +1074,7 @@ function buildRoadDetail(road: RoadAssetRecord, viewerUserId?: string | null): R
       verifications.length,
     ),
     activeSubscriptionCount: road.subscriptions.length,
-    publicObservationCount: road.observations.length,
+    publicObservationCount: clearedRoad.observations.length,
     openIssueCount: openIssues.length,
     monitoringIssueCount: monitoringIssues.length,
     repeatIssueCount: repeatIssues.length,
@@ -766,8 +1083,49 @@ function buildRoadDetail(road: RoadAssetRecord, viewerUserId?: string | null): R
       0,
     ),
     issueClusters,
+    collectedViolations: visibleRoad.observations
+      .map((observation) => {
+        const severityBand = getSeverityBand(observation.severityScore);
+        const cluster = clustersByKey.get(observation.issueClusterKey);
+        const ownerUserId = observation.receipts[0]?.userId ?? null;
+        const derivedState = deriveCollectedCaptureState(
+          observation.humanCheckStatus,
+          cluster,
+        );
+
+        return {
+          id: observation.id,
+          roadId: road.id,
+          roadSlug: road.slug,
+          roadName: road.name,
+          issueType: observation.issueType,
+          issueLabel: issueTypeMeta[observation.issueType].label,
+          severityScore: observation.severityScore,
+          severityBand,
+          severityLabel: severityBandMeta[severityBand].label,
+          state: derivedState.state,
+          stateLabel: derivedState.stateLabel,
+          description: observation.description,
+          evidencePath: observation.evidencePath,
+          humanCheckStatus: observation.humanCheckStatus,
+          gpsLat: observation.gpsLat ?? road.centerLat,
+          gpsLng: observation.gpsLng ?? road.centerLng,
+          submittedAt: observation.createdAt.toISOString(),
+          likeCount: observation.votes.filter((vote) => vote.kind === "LIKE").length,
+          dislikeCount: observation.votes.filter((vote) => vote.kind === "DISLIKE").length,
+          viewerVote: observation.votes.find((vote) => vote.userId === viewerUserId)?.kind ?? null,
+          isOwnCollection: ownerUserId === viewerUserId,
+          source: observation.source,
+          sourceLabel: observation.sourceLabel ?? observation.source,
+          sourceReference: observation.sourceReference,
+        };
+      })
+      .sort(
+        (left, right) =>
+          new Date(right.submittedAt).getTime() - new Date(left.submittedAt).getTime(),
+      ),
     conditionHistory,
-    timeline: buildTimeline(road),
+    timeline: buildTimeline(clearedRoad),
     repairs: road.repairs
       .map((repair) => ({
         id: repair.id,
@@ -938,7 +1296,57 @@ export async function getWardDashboard(): Promise<WardDashboard> {
   };
 }
 
-export async function getRoadDetail(slug: string, viewerUserId?: string | null) {
+export async function getPendingModerationQueue(): Promise<PendingModerationQueue> {
+  const observations = await prisma.observation.findMany({
+    where: {
+      humanCheckStatus: "MANUAL_REVIEW",
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+    include: {
+      road: true,
+      receipts: {
+        include: {
+          user: true,
+        },
+      },
+    },
+  });
+
+  const captures = observations.map((observation) => {
+    const severityBand = getSeverityBand(observation.severityScore);
+
+    return {
+      id: observation.id,
+      roadSlug: observation.road.slug,
+      roadName: observation.road.name,
+      assetLabel: roadAssetTypeMeta[observation.road.assetType].label,
+      issueType: observation.issueType,
+      issueLabel: issueTypeMeta[observation.issueType].label,
+      severityScore: observation.severityScore,
+      severityBand,
+      severityLabel: severityBandMeta[severityBand].label,
+      description: observation.description,
+      evidencePath: observation.evidencePath,
+      gpsLat: observation.gpsLat ?? observation.road.centerLat,
+      gpsLng: observation.gpsLng ?? observation.road.centerLng,
+      submittedAt: observation.createdAt.toISOString(),
+      collectorLabel: observation.receipts[0]?.user.publicLabel ?? null,
+    };
+  });
+
+  return {
+    totalCount: captures.length,
+    captures,
+  };
+}
+
+export async function getRoadDetail(
+  slug: string,
+  viewerUserId?: string | null,
+  canModerate = false,
+) {
   const road = await prisma.roadAsset.findUniqueOrThrow({
     where: {
       slug,
@@ -946,7 +1354,7 @@ export async function getRoadDetail(slug: string, viewerUserId?: string | null) 
     include: roadAssetInclude,
   });
 
-  return buildRoadDetail(road, viewerUserId);
+  return buildRoadDetail(road, viewerUserId, canModerate);
 }
 
 export async function getRoadAssetOptions() {
@@ -964,6 +1372,8 @@ export async function getRoadAssetOptions() {
       slug: true,
       name: true,
       assetType: true,
+      centerLat: true,
+      centerLng: true,
     },
   });
 
@@ -973,6 +1383,8 @@ export async function getRoadAssetOptions() {
     name: road.name,
     assetType: road.assetType,
     assetLabel: roadAssetTypeMeta[road.assetType].label,
+    centerLat: road.centerLat,
+    centerLng: road.centerLng,
   }));
 }
 
@@ -1080,7 +1492,17 @@ export async function getMyComplaintDashboard(
   const complaints = receipts.map((receipt) => {
     const road = receipt.observation.road;
     const cachedClusters = clustersByRoadId.get(road.id);
-    const issueClusters = cachedClusters ?? buildIssueClusters(road, userId);
+    const issueClusters =
+      cachedClusters ??
+      buildIssueClusters(
+        {
+          ...road,
+          observations: road.observations.filter(
+            (observation) => observation.humanCheckStatus === "CLEARED",
+          ),
+        },
+        userId,
+      );
 
     if (!cachedClusters) {
       clustersByRoadId.set(road.id, issueClusters);
@@ -1090,6 +1512,10 @@ export async function getMyComplaintDashboard(
       (item) => item.clusterKey === receipt.observation.issueClusterKey,
     );
     const severityBand = getSeverityBand(receipt.observation.severityScore);
+    const derivedState = deriveCollectedCaptureState(
+      receipt.observation.humanCheckStatus,
+      cluster,
+    );
 
     return {
       id: receipt.id,
@@ -1102,25 +1528,154 @@ export async function getMyComplaintDashboard(
       severityScore: receipt.observation.severityScore,
       severityBand: cluster?.severityBand ?? severityBand,
       severityLabel: cluster?.severityLabel ?? severityBandMeta[severityBand].label,
-      state: cluster?.state ?? "open",
-      stateLabel: cluster?.stateLabel ?? "Open observation",
+      state: derivedState.state,
+      stateLabel: derivedState.stateLabel,
       description: receipt.observation.description,
       evidencePath: receipt.observation.evidencePath,
+      humanCheckStatus: receipt.observation.humanCheckStatus,
+      gpsLat: receipt.observation.gpsLat ?? road.centerLat,
+      gpsLng: receipt.observation.gpsLng ?? road.centerLng,
       submittedAt: receipt.observation.createdAt.toISOString(),
       latestRepairStatus: cluster?.latestRepairStatus ?? null,
       latestRepairNote: cluster?.latestRepairNote ?? null,
       latestRepairProofPath: cluster?.latestRepairProofPath ?? null,
       latestRepairRecordedAt: cluster?.latestRepairRecordedAt ?? null,
       latestVerificationLabel: cluster?.latestVerificationLabel ?? null,
+      likeCount: receipt.observation.votes.filter((vote) => vote.kind === "LIKE").length,
+      dislikeCount: receipt.observation.votes.filter((vote) => vote.kind === "DISLIKE").length,
     };
   });
 
+  const scoreEligibleComplaints = complaints.filter(
+    (complaint) => complaint.humanCheckStatus === "CLEARED",
+  );
+  const receivedLikeCount = scoreEligibleComplaints.reduce(
+    (sum, complaint) => sum + complaint.likeCount,
+    0,
+  );
+  const receivedDislikeCount = scoreEligibleComplaints.reduce(
+    (sum, complaint) => sum + complaint.dislikeCount,
+    0,
+  );
+
+  const score = calculateCollectorScore({
+    submittedViolationCount: scoreEligibleComplaints.length,
+    receivedLikeCount,
+    receivedDislikeCount,
+  });
+
+  const resolvedCount = scoreEligibleComplaints.filter(
+    (complaint) => complaint.state === "resolved",
+  ).length;
+
   return {
     totalCount: complaints.length,
-    openCount: complaints.filter((complaint) => complaint.state === "open").length,
-    monitoringCount: complaints.filter((complaint) => complaint.state === "monitoring").length,
-    resolvedCount: complaints.filter((complaint) => complaint.state === "resolved").length,
+    score,
+    levelProgress: getCollectorLevelProgress(score.totalScore),
+    badges: getCollectorBadges({
+      submittedViolationCount: scoreEligibleComplaints.length,
+      receivedLikeCount,
+      receivedDislikeCount,
+      resolvedViolationCount: resolvedCount,
+    }),
+    openCount: scoreEligibleComplaints.filter((complaint) => complaint.state === "open").length,
+    monitoringCount: scoreEligibleComplaints.filter(
+      (complaint) => complaint.state === "monitoring",
+    ).length,
+    resolvedCount,
     complaints,
+  };
+}
+
+export async function getCollectorLeaderboard(
+  window: LeaderboardWindow = "all",
+): Promise<CollectorLeaderboard> {
+  const windowStart = getLeaderboardWindowStart(window);
+  const residents = await prisma.user.findMany({
+    where: {
+      role: "RESIDENT",
+    },
+    include: {
+      observationReceipts: {
+        include: {
+          observation: {
+            include: {
+              votes: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+  });
+
+  const entries = rankCollectorScores(
+    residents.map((resident) => {
+      const scoreEligibleReceipts = resident.observationReceipts.filter(
+        (receipt) => receipt.observation.humanCheckStatus === "CLEARED",
+      );
+      const includedReceipts = scoreEligibleReceipts.filter((receipt) =>
+        windowStart ? receipt.createdAt >= windowStart : true,
+      );
+      const receivedLikeCount = scoreEligibleReceipts.reduce(
+        (sum, receipt) =>
+          sum +
+          receipt.observation.votes.filter(
+            (vote) =>
+              vote.kind === "LIKE" &&
+              (windowStart ? vote.updatedAt >= windowStart : true),
+          ).length,
+        0,
+      );
+      const receivedDislikeCount = scoreEligibleReceipts.reduce(
+        (sum, receipt) =>
+          sum +
+          receipt.observation.votes.filter(
+            (vote) =>
+              vote.kind === "DISLIKE" &&
+              (windowStart ? vote.updatedAt >= windowStart : true),
+          ).length,
+        0,
+      );
+
+      return {
+        userId: resident.id,
+        publicLabel: resident.publicLabel,
+        createdAt: resident.createdAt,
+        score: calculateCollectorScore({
+          submittedViolationCount: includedReceipts.length,
+          receivedLikeCount,
+          receivedDislikeCount,
+        }),
+      };
+    }),
+  ).map((entry) => ({
+    rank: entry.rank,
+    userId: entry.userId,
+    publicLabel: entry.publicLabel,
+    score: entry.score,
+  }));
+
+  return {
+    window,
+    entries,
+    totals: {
+      residentCount: entries.length,
+      collectedViolationCount: entries.reduce(
+        (sum, entry) => sum + entry.score.submittedViolationCount,
+        0,
+      ),
+      likeCount: entries.reduce(
+        (sum, entry) => sum + entry.score.receivedLikeCount,
+        0,
+      ),
+      dislikeCount: entries.reduce(
+        (sum, entry) => sum + entry.score.receivedDislikeCount,
+        0,
+      ),
+    },
   };
 }
 
@@ -1131,11 +1686,17 @@ export async function getRoadExportRows(slug: string): Promise<ExportRow[]> {
     },
     include: roadAssetInclude,
   });
-  const issueClusters = buildIssueClusters(road);
+  const publicRoad: RoadAssetRecord = {
+    ...road,
+    observations: road.observations.filter(
+      (observation) => observation.humanCheckStatus === "CLEARED",
+    ),
+  };
+  const issueClusters = buildIssueClusters(publicRoad);
   const clusterMap = new Map(issueClusters.map((cluster) => [cluster.clusterKey, cluster]));
   const rows: ExportRow[] = [];
 
-  for (const observation of road.observations) {
+  for (const observation of publicRoad.observations) {
     rows.push({
       recordedAt: observation.createdAt.toISOString(),
       eventType: "observation",
@@ -1154,6 +1715,27 @@ export async function getRoadExportRows(slug: string): Promise<ExportRow[]> {
       gpsLng: observation.gpsLng,
       evidencePath: observation.evidencePath,
     });
+
+    for (const vote of observation.votes) {
+      rows.push({
+        recordedAt: vote.updatedAt.toISOString(),
+        eventType: "vote",
+        roadName: road.name,
+        roadSlug: road.slug,
+        clusterKey: observation.issueClusterKey,
+        issueType: issueTypeMeta[observation.issueType].label,
+        severityScore: observation.severityScore,
+        impactScore: observation.impactScore,
+        status: vote.kind === "LIKE" ? "Violation confirmed" : "Violation disputed",
+        verdict: vote.kind,
+        costEstimateInr: null,
+        actorLabel: "Resident vote",
+        description: `${vote.kind === "LIKE" ? "Liked" : "Disliked"} collected violation: ${observation.description}`,
+        gpsLat: observation.gpsLat,
+        gpsLng: observation.gpsLng,
+        evidencePath: observation.evidencePath,
+      });
+    }
   }
 
   for (const repair of road.repairs) {
@@ -1267,8 +1849,8 @@ export async function getSubscriptionFeed(token: string): Promise<SubscriptionFe
   });
 
   return {
-    title: `${subscription.road.name} road record feed`,
-    description: `Custom RSS feed for ${subscription.road.name}. Minimum severity ${subscription.minSeverity}.`,
+    title: `${subscription.road.name} road updates`,
+    description: `RoadWatch updates for ${subscription.road.name}. Minimum severity ${subscription.minSeverity}.`,
     feedUrl: `${defaultBaseUrl}/feeds/subscriptions/${subscription.token}`,
     siteUrl: `${defaultBaseUrl}/roads/${subscription.road.slug}`,
     items: filteredRows.slice(0, 25).map((row) => ({

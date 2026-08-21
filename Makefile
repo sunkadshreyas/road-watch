@@ -1,6 +1,6 @@
 SHELL := /bin/zsh
 
-.PHONY: help env install setup reset-demo dev demo lint build
+.PHONY: help env install setup reset-demo dev demo lint build verify verify-mobile
 
 help:
 	@echo "RoadWatch demo commands"
@@ -10,6 +10,8 @@ help:
 	@echo "  make dev         Start the local Next.js dev server"
 	@echo "  make lint        Run ESLint"
 	@echo "  make build       Run the production build"
+	@echo "  make verify      Run lint, tests, build, and mobile persona verification"
+	@echo "  make verify-mobile  Verify mobile anonymous/resident/admin flows and start dev server if needed"
 
 env:
 	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env from .env.example"; fi
@@ -35,3 +37,8 @@ lint:
 build:
 	npm run build
 
+verify:
+	npm run verify
+
+verify-mobile:
+	npm run verify:mobile

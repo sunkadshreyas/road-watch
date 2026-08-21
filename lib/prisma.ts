@@ -1,7 +1,11 @@
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "@prisma/client";
 
+import { assertProductionDatabaseUrl } from "@/lib/database-runtime";
+
 const databaseUrl = process.env.DATABASE_URL ?? "file:./dev.db";
+
+assertProductionDatabaseUrl(databaseUrl);
 
 const globalForPrisma = globalThis as typeof globalThis & {
   roadWatchAdapter?: PrismaBetterSqlite3;

@@ -139,6 +139,7 @@ export const communityCategoryMeta: Record<
 
 export const rssEventTypeOptions = [
   "observation",
+  "vote",
   "repair",
   "verification",
 ] as const;
