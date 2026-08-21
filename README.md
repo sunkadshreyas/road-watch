@@ -4,6 +4,13 @@ RoadWatch is a civic infrastructure collection game for roads and footpaths.
 
 This MVP turns street maintenance into a Pokemon Go-style resident workflow. Residents sign in, capture live violation photos with GPS, collect sightings, vote on other residents' sightings, and earn points for useful records. Government-labelled users review supported violations, publish repair updates, and attach proof photos. Everyone can see the condition history of the street itself while resident identity stays out of the public record.
 
+## Screenshots
+
+<img width="585" height="1266" alt="IMG_8836" src="https://github.com/user-attachments/assets/e2047d79-4059-419c-ae45-d67777b3fd56" />
+<img width="585" height="1266" alt="IMG_8837" src="https://github.com/user-attachments/assets/4d198c0b-cb61-4ea1-bad2-58f263efa3a4" />
+<img width="585" height="1266" alt="IMG_8838" src="https://github.com/user-attachments/assets/aeb14c66-a29b-4089-a5df-fe8002068aaf" />
+
+
 ## What this demo shows
 
 - Resident-only live capture for road and footpath violations with required GPS
