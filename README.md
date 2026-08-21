@@ -16,7 +16,16 @@ This MVP turns street maintenance into a Pokemon Go-style resident workflow. Res
 - Collector scoring and leaderboard for gamified reporting
 - Seeded sample ward with road and footpath records, issue photos, and repair proof photos
 
-## Quick start
+## First-time setup
+
+These instructions set up the local, seeded demo from a fresh checkout. RoadWatch
+uses SQLite for local development, so no separate database server is required.
+
+### Prerequisites
+
+- Node.js 22.x
+- npm
+- `make` for the recommended one-command setup
 
 ### Runtime requirement
 
@@ -26,21 +35,26 @@ guidance when another Node major is active.
 
 ```bash
 fnm use
-npm install
 ```
 
-After changing Node versions, run `npm install` again so native dependencies are
-built for the active runtime.
+If you use `nvm` instead, run `nvm use`. The repository's `.nvmrc` selects the
+expected Node version.
 
-### One command
+The recommended `make demo` command installs dependencies for the active
+runtime. If you use the manual setup below, run `npm install` after changing
+Node versions so native dependencies are rebuilt.
 
-Run the full demo setup and start the app:
+### Recommended setup
+
+From the repository root, run:
 
 ```bash
 make demo
 ```
 
-Then open `http://localhost:3000`.
+This creates the local environment file when needed, installs dependencies,
+resets and seeds the SQLite database, and starts the Next.js development server.
+Open `http://localhost:3000` when the server is ready.
 
 ### What `make demo` does
 
@@ -51,16 +65,20 @@ Then open `http://localhost:3000`.
 - seeds the sample ward
 - starts the Next.js dev server
 
-## Manual setup
+### Manual setup
 
 If you prefer to run each step yourself:
 
 ```bash
+fnm use # or: nvm use
 cp .env.example .env
 npm install
 npm run db:reset
 npm run dev
 ```
+
+If you already have a local `.env`, keep it and skip the copy step. The default
+configuration uses `file:./dev.db` and `http://localhost:3000`.
 
 ## Demo accounts
 
