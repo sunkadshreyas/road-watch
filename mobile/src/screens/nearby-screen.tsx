@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
+import { Image } from "expo-image";
 import * as Location from "expo-location";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { PrimaryButton } from "@/components/primary-button";
 import { ScreenShell } from "@/components/screen-shell";
 import { StatusCard } from "@/components/status-card";
 import { useApiResource } from "@/hooks/use-api-resource";
+import { getApiClient } from "@/lib/api";
+import { authStorage } from "@/lib/auth-storage";
 import { buildNearbyViolationsPath } from "@/lib/nearby-request";
 import { colors } from "@/theme/colors";
 
@@ -16,6 +19,13 @@ type NearbyViolation = {
   road: {
     name: string;
   };
+  description: string;
+  evidenceUrl: string | null;
+  capturedAt: string;
+  likeCount: number;
+  dislikeCount: number;
+  viewerVote: "LIKE" | "DISLIKE" | null;
+  isOwnCollection: boolean;
 };
 
 type NearbyResponse = {
@@ -26,6 +36,13 @@ export function NearbyScreen() {
   const [permission, requestPermission] = Location.useForegroundPermissions();
   const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [voteBusy, setVoteBusy] = useState<string | null>(null);
+  const [voteError, setVoteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    authStorage.getAccessToken().then(setAccessToken).catch(() => setAccessToken(null));
+  }, []);
 
   useEffect(() => {
     if (!permission?.granted) {
@@ -58,6 +75,36 @@ export function NearbyScreen() {
     : null;
   const resource = useApiResource<NearbyResponse>(path);
 
+  async function voteOnViolation(
+    observationId: string,
+    kind: "LIKE" | "DISLIKE",
+  ) {
+    setVoteBusy(`${observationId}:${kind}`);
+    setVoteError(null);
+
+    try {
+      await getApiClient().post(`/violations/${observationId}/vote`, { kind });
+      resource.reload();
+    } catch (error) {
+      setVoteError(error instanceof Error ? error.message : "RoadWatch could not save your vote.");
+    } finally {
+      setVoteBusy(null);
+    }
+  }
+
+  function evidenceUri(pathname: string | null) {
+    if (!pathname) {
+      return null;
+    }
+
+    if (pathname.startsWith("http://") || pathname.startsWith("https://")) {
+      return pathname;
+    }
+
+    const baseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
+    return baseUrl ? `${baseUrl}${pathname}` : null;
+  }
+
   return (
     <ScreenShell
       eyebrow="Approved road record"
@@ -81,6 +128,11 @@ export function NearbyScreen() {
       {locationError ? (
         <StatusCard label="Location unavailable" tone="warning">
           <Text selectable style={{ color: colors.muted, lineHeight: 21 }}>{locationError}</Text>
+        </StatusCard>
+      ) : null}
+      {voteError ? (
+        <StatusCard label="Vote unavailable" tone="warning">
+          <Text selectable style={{ color: colors.muted, lineHeight: 21 }}>{voteError}</Text>
         </StatusCard>
       ) : null}
       {path && resource.status === "loading" ? (
@@ -109,6 +161,32 @@ export function NearbyScreen() {
                 padding: 16,
               }}
             >
+              {evidenceUri(item.evidenceUrl) ? (
+                <Image
+                  source={{
+                    uri: evidenceUri(item.evidenceUrl) ?? undefined,
+                    headers: accessToken
+                      ? { Authorization: `Bearer ${accessToken}` }
+                      : undefined,
+                  }}
+                  alt={`${item.issueLabel} evidence photo`}
+                  accessibilityLabel={`${item.issueLabel} evidence photo`}
+                  contentFit="cover"
+                  style={{ height: 190, borderRadius: 14, backgroundColor: colors.background }}
+                />
+              ) : (
+                <View
+                  style={{
+                    height: 120,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: 14,
+                    backgroundColor: colors.background,
+                  }}
+                >
+                  <Text selectable style={{ color: colors.muted }}>Evidence image unavailable</Text>
+                </View>
+              )}
               <Text selectable style={{ color: colors.ink, fontSize: 18, fontWeight: "800" }}>
                 {item.issueLabel}
               </Text>
@@ -118,6 +196,57 @@ export function NearbyScreen() {
               <Text selectable style={{ color: colors.accent, fontVariant: ["tabular-nums"] }}>
                 {Math.round(item.distanceMeters)} m away
               </Text>
+              <Text selectable style={{ color: colors.muted, lineHeight: 21 }}>
+                {item.description}
+              </Text>
+              <Text selectable style={{ color: colors.muted, fontSize: 13 }}>
+                Confirmed {item.likeCount} · disputed {item.dislikeCount} · captured {item.capturedAt}
+              </Text>
+              {item.isOwnCollection ? (
+                <Text selectable style={{ color: colors.warning, fontSize: 13 }}>
+                  You collected this issue. Other residents can confirm or dispute it.
+                </Text>
+              ) : null}
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Confirm this issue is real"
+                  disabled={voteBusy !== null || item.isOwnCollection}
+                  onPress={() => void voteOnViolation(item.id, "LIKE")}
+                  style={({ pressed }) => ({
+                    flex: 1,
+                    minHeight: 44,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: 999,
+                    backgroundColor: item.viewerVote === "LIKE" ? colors.accent : colors.surfaceRaised,
+                    opacity: voteBusy !== null || item.isOwnCollection ? 0.5 : pressed ? 0.75 : 1,
+                  })}
+                >
+                  <Text style={{ color: item.viewerVote === "LIKE" ? colors.accentInk : colors.ink, fontWeight: "800" }}>
+                    {voteBusy === `${item.id}:LIKE` ? "Saving..." : "Confirm real"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Dispute this issue"
+                  disabled={voteBusy !== null || item.isOwnCollection}
+                  onPress={() => void voteOnViolation(item.id, "DISLIKE")}
+                  style={({ pressed }) => ({
+                    flex: 1,
+                    minHeight: 44,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: 999,
+                    backgroundColor: item.viewerVote === "DISLIKE" ? colors.danger : colors.surfaceRaised,
+                    opacity: voteBusy !== null || item.isOwnCollection ? 0.5 : pressed ? 0.75 : 1,
+                  })}
+                >
+                  <Text style={{ color: colors.ink, fontWeight: "800" }}>
+                    {voteBusy === `${item.id}:DISLIKE` ? "Saving..." : "Dispute"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           ))
         : null}

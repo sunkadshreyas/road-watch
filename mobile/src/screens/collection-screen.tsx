@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { Image } from "expo-image";
 import { Text, View } from "react-native";
 
 import { PrimaryButton } from "@/components/primary-button";
@@ -5,11 +7,18 @@ import { ScreenShell } from "@/components/screen-shell";
 import { StatusCard } from "@/components/status-card";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { colors } from "@/theme/colors";
+import { authStorage } from "@/lib/auth-storage";
 
 type CollectionItem = {
   id: string;
   issueType: string;
   roadName: string;
+  description: string;
+  evidenceUrl: string | null;
+  capturedAt: string;
+  gps: { lat: number; lng: number } | null;
+  likeCount: number;
+  dislikeCount: number;
   reviewStatus: "MANUAL_REVIEW" | "CLEARED" | "REJECTED";
   points: number;
 };
@@ -21,12 +30,37 @@ type CollectionResponse = {
 
 export function CollectionScreen() {
   const resource = useApiResource<CollectionResponse>("/me/collection");
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    authStorage.getAccessToken().then(setAccessToken).catch(() => setAccessToken(null));
+  }, []);
+
+  function evidenceUri(pathname: string | null) {
+    if (!pathname) {
+      return null;
+    }
+
+    if (pathname.startsWith("http://") || pathname.startsWith("https://")) {
+      return pathname;
+    }
+
+    const baseUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
+    if (!baseUrl) {
+      return null;
+    }
+
+    const cacheVersion = pathname.startsWith("/uploads/seed/")
+      ? "?v=real-photo-set-1"
+      : "";
+    return `${baseUrl}${pathname}${cacheVersion}`;
+  }
 
   return (
     <ScreenShell
       eyebrow="Private resident view"
       title="My collection"
-      description="Pending catches stay private and earn zero points. Approved catches add to your ward score."
+      description="Your private capture history. Government approval makes a catch public and awards points."
     >
       {resource.status === "loading" ? (
         <StatusCard label="Loading" value="Opening your collection" />
@@ -61,11 +95,38 @@ export function CollectionScreen() {
                 padding: 16,
               }}
             >
+              {evidenceUri(item.evidenceUrl) ? (
+                <Image
+                  source={{
+                    uri: evidenceUri(item.evidenceUrl) ?? undefined,
+                    headers: accessToken
+                      ? { Authorization: `Bearer ${accessToken}` }
+                      : undefined,
+                  }}
+                  alt={`${item.issueType} evidence photo`}
+                  contentFit="cover"
+                  style={{ height: 190, borderRadius: 14, backgroundColor: colors.background }}
+                />
+              ) : null}
               <Text selectable style={{ color: colors.ink, fontSize: 18, fontWeight: "800" }}>
                 {item.issueType.replaceAll("_", " ")}
               </Text>
               <Text selectable style={{ color: colors.muted }}>
                 {item.roadName}
+              </Text>
+              <Text selectable style={{ color: colors.muted, lineHeight: 21 }}>
+                {item.description}
+              </Text>
+              <Text selectable style={{ color: colors.muted, fontSize: 13 }}>
+                Captured {new Date(item.capturedAt).toLocaleDateString()}
+              </Text>
+              <Text selectable style={{ color: colors.muted, fontSize: 13 }}>
+                {item.gps
+                  ? `Location from GPS: ${item.gps.lat.toFixed(5)}, ${item.gps.lng.toFixed(5)}`
+                  : "Location from GPS: unavailable for this capture"}
+              </Text>
+              <Text selectable style={{ color: colors.muted, fontSize: 13 }}>
+                Confirmed by {item.likeCount} · disputed by {item.dislikeCount} other resident{item.likeCount + item.dislikeCount === 1 ? "" : "s"}
               </Text>
               <Text
                 selectable

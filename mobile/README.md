@@ -13,7 +13,7 @@ cp .env.example .env.local
 npm start
 ```
 
-Set `EXPO_PUBLIC_API_URL` to the deployed Next.js backend origin. It is a public build-time value and must not contain credentials.
+Set `EXPO_PUBLIC_API_URL` to the deployed Next.js backend origin. It is a public build-time value and must not contain credentials. For the local simulator, start the Next.js app from the repository root on port 3000 and configure the seeded token mapping shown in the root `.env.example`.
 
 For an unsigned local iOS simulator build, set `EXPO_PUBLIC_DEMO_MODE=1`. The first launch still asks for a resident sign-in, using one of the seeded profiles:
 
@@ -21,6 +21,8 @@ For an unsigned local iOS simulator build, set `EXPO_PUBLIC_DEMO_MODE=1`. The fi
 - `resident-b@roadwatch.demo`
 
 Production builds always use the configured identity provider and SecureStore.
+
+The iOS Simulator has no camera hardware. Set `EXPO_PUBLIC_SIMULATOR_CAMERA=1` together with demo mode to show a labeled simulated road preview and use Expo's generated test photo. Physical devices continue to require a real camera-ready event.
 
 ## Verification available without Expo packages
 

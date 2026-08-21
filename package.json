@@ -24,6 +24,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "ingest:fixtures": "tsx scripts/ingest-fixtures.ts",
     "db:reset": "prisma migrate reset --force && npm run db:seed"
   },
   "dependencies": {

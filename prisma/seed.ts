@@ -45,6 +45,8 @@ async function main() {
       osmReference: "OpenStreetMap sample geometry derived for Indiranagar demo ward",
       centerLat: 12.9738,
       centerLng: 77.6427,
+      authorityLabel: "BBMP Ward 94 civic desk",
+      authoritySource: "Seeded ward boundary fixture",
       boundaryGeoJson: polygon([
         [77.6373, 12.9789],
         [77.6488, 12.9789],

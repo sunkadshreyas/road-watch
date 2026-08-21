@@ -45,3 +45,27 @@ test("native routes do not import Next.js, Prisma, or server actions", () => {
     assert.doesNotMatch(source, /app\/actions/);
   }
 });
+
+test("live and review capture controls both clear the native tab bar", () => {
+  const source = readFileSync(
+    join(mobileRoot, "src/screens/capture-screen.tsx"),
+    "utf8",
+  );
+  const protectedBottomControls = source.match(
+    /paddingBottom: captureControlsBottomPadding\(insets\.bottom\)/g,
+  );
+
+  assert.equal(protectedBottomControls?.length, 2);
+});
+
+test("retaking a capture resets the camera guidance", () => {
+  const source = readFileSync(
+    join(mobileRoot, "src/screens/capture-screen.tsx"),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /function retakePicture\(\)[\s\S]*setCapturedFrame\(null\)[\s\S]*setMessage\(/,
+  );
+});

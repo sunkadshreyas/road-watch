@@ -55,6 +55,7 @@ const nearbyQuerySchema = z.object({
 
 const leaderboardQuerySchema = z.object({
   window: z.enum(["all", "month", "week"]).default("all"),
+  roadSlug: z.string().trim().min(1).optional(),
 });
 
 export function parseNearbyQuery(searchParams: URLSearchParams) {
@@ -83,6 +84,19 @@ export function parseApiLeaderboardWindow(searchParams: URLSearchParams) {
   return result.data.window;
 }
 
+export function parseApiLeaderboardFilters(searchParams: URLSearchParams) {
+  const result = leaderboardQuerySchema.safeParse({
+    window: searchParams.get("window") ?? undefined,
+    roadSlug: searchParams.get("roadSlug") ?? undefined,
+  });
+
+  if (!result.success) {
+    throw invalidApiQuery();
+  }
+
+  return result.data;
+}
+
 export function getApiCurrentUser(user: AuthenticatedApiUser) {
   return {
     user: {
@@ -105,8 +119,14 @@ type ApiCollectionReceipt = {
   observation: {
     id: string;
     issueType: string;
+    description: string;
+    evidencePath: string;
+    evidenceCapturedAt: Date;
+    gpsLat: number | null;
+    gpsLng: number | null;
     humanCheckStatus: "MANUAL_REVIEW" | "CLEARED" | "REJECTED";
     road: { name: string };
+    votes: Array<{ kind: "LIKE" | "DISLIKE" }>;
   };
 };
 
@@ -116,6 +136,17 @@ export function buildApiCollection(receipts: readonly ApiCollectionReceipt[]) {
     receiptId: receipt.id,
     issueType: receipt.observation.issueType,
     roadName: receipt.observation.road.name,
+    description: receipt.observation.description,
+    evidenceUrl: receipt.observation.evidencePath,
+    capturedAt: receipt.observation.evidenceCapturedAt.toISOString(),
+    gps: receipt.observation.gpsLat == null || receipt.observation.gpsLng == null
+      ? null
+      : {
+          lat: receipt.observation.gpsLat,
+          lng: receipt.observation.gpsLng,
+        },
+    likeCount: receipt.observation.votes.filter((vote) => vote.kind === "LIKE").length,
+    dislikeCount: receipt.observation.votes.filter((vote) => vote.kind === "DISLIKE").length,
     reviewStatus: receipt.observation.humanCheckStatus,
     points: receipt.observation.humanCheckStatus === "CLEARED" ? 10 : 0,
   }));
@@ -134,6 +165,9 @@ export async function getApiCollection(user: AuthenticatedApiUser) {
         include: {
           road: {
             select: { name: true },
+          },
+          votes: {
+            select: { kind: true },
           },
         },
       },
@@ -173,6 +207,12 @@ export async function getNearbyApiViolations(
       votes: {
         select: {
           kind: true,
+          userId: true,
+        },
+      },
+      receipts: {
+        select: {
+          userId: true,
         },
       },
     },
@@ -231,9 +271,7 @@ export async function getNearbyApiViolations(
           issueLabel: issueTypeMeta[observation.issueType].label,
           description: observation.description,
           severityScore: observation.severityScore,
-          evidenceUrl: observation.evidencePath.startsWith("/uploads/seed/")
-            ? observation.evidencePath
-            : null,
+          evidenceUrl: observation.evidencePath,
           capturedAt: observation.evidenceCapturedAt.toISOString().slice(0, 10),
           submittedAt: observation.createdAt.toISOString(),
           gps: coarsenPublicPoint({ lat: observation.gpsLat, lng: observation.gpsLng }),
@@ -242,6 +280,8 @@ export async function getNearbyApiViolations(
           likeCount: observation.votes.filter((vote) => vote.kind === "LIKE").length,
           dislikeCount: observation.votes.filter((vote) => vote.kind === "DISLIKE")
             .length,
+          viewerVote: observation.votes.find((vote) => vote.userId === user.id)?.kind ?? null,
+          isOwnCollection: observation.receipts.some((receipt) => receipt.userId === user.id),
           road: {
             id: observation.road.id,
             slug: observation.road.slug,
@@ -273,33 +313,45 @@ export async function getNearbyApiViolations(
 export async function getApiLeaderboard(
   user: AuthenticatedApiUser,
   window: LeaderboardWindow,
+  roadSlug: string | null = null,
 ) {
   const windowStart = getLeaderboardWindowStart(window);
+  const roads = await prisma.roadAsset.findMany({
+    where: { wardId: user.wardId },
+    select: { id: true, name: true, slug: true },
+    orderBy: { name: "asc" },
+  });
+  const selectedRoad = roadSlug
+    ? roads.find((road) => road.slug === roadSlug) ?? null
+    : null;
+
+  if (roadSlug && !selectedRoad) {
+    throw invalidApiQuery();
+  }
+
   const residents = await prisma.user.findMany({
-    where: {
-      role: "RESIDENT",
-      wardId: user.wardId,
-    },
+    where: { role: "RESIDENT", wardId: user.wardId },
     include: {
       observationReceipts: {
         include: {
           observation: {
             include: {
+              road: { select: { id: true } },
               votes: true,
             },
           },
         },
       },
     },
-    orderBy: {
-      createdAt: "asc",
-    },
+    orderBy: { createdAt: "asc" },
   });
 
   const entries = rankCollectorScores(
     residents.map((resident) => {
       const approvedReceipts = resident.observationReceipts.filter(
-        (receipt) => receipt.observation.humanCheckStatus === "CLEARED",
+        (receipt) =>
+          receipt.observation.humanCheckStatus === "CLEARED" &&
+          (!selectedRoad || receipt.observation.road.id === selectedRoad.id),
       );
       const includedReceipts = approvedReceipts.filter((receipt) =>
         windowStart ? receipt.createdAt >= windowStart : true,
@@ -349,6 +401,8 @@ export async function getApiLeaderboard(
   return {
     wardName: user.ward.name,
     window,
+    roads,
+    roadFilter: selectedRoad,
     entries,
     totals: {
       residentCount: entries.length,

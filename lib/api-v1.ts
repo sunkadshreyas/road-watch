@@ -12,7 +12,8 @@ type ApiErrorCode =
   | "INTERNAL_ERROR"
   | "INVALID_REQUEST"
   | "RATE_LIMITED"
-  | "UNAUTHORIZED";
+  | "UNAUTHORIZED"
+  | "FORBIDDEN";
 
 class ApiV1Error extends Error {
   constructor(
@@ -92,6 +93,10 @@ export function invalidApiQuery() {
     "INVALID_REQUEST",
     "Query parameters are invalid.",
   );
+}
+
+export function forbiddenApiRequest(message: string) {
+  return new ApiV1Error(403, "FORBIDDEN", message);
 }
 
 function bearerToken(request: Request) {

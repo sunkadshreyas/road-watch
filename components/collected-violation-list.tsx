@@ -98,6 +98,9 @@ export function CollectedViolationList({
                         Rejected
                       </span>
                     ) : null}
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      {violation.sourceLabel}
+                    </span>
                   </div>
 
                   <p className="mt-2 text-sm leading-7 text-slate-600">
@@ -108,6 +111,7 @@ export function CollectedViolationList({
                     <span>severity {violation.severityScore}</span>
                     <span>collected {formatDate(violation.submittedAt)}</span>
                     {violation.isOwnCollection ? <span>your collection</span> : null}
+                    {violation.sourceReference ? <span>{violation.sourceReference}</span> : null}
                   </div>
                   <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-teal-100 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-800">
                     <MapPin className="h-4 w-4 shrink-0" aria-hidden="true" />

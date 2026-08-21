@@ -48,6 +48,8 @@ next-env.d.ts
 !/public/uploads/.gitkeep
 !/public/uploads/seed/
 !/public/uploads/seed/*
+!/public/uploads/real/
+!/public/uploads/real/*
 /storage/observations/*
 /dev.db*
 /prisma/dev.db*

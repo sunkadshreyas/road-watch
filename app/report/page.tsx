@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 
 import { CollectedViolationList } from "@/components/collected-violation-list";
 import { DashboardMap } from "@/components/dashboard-map";
-import { LiveObservationForm } from "@/components/live-observation-form";
 import { NearbyRoadPicker } from "@/components/nearby-road-picker";
 import { PublicRecordList } from "@/components/public-record-list";
 import { getSessionUser } from "@/lib/auth";
@@ -47,13 +46,15 @@ export default async function ReportIssuePage({
     user?.role === "GOV",
   );
   const displayIssueClusters = road.issueClusters;
-  const canSubmitObservation = user?.role === "RESIDENT";
+  const canSubmitObservation = user?.role !== "GOV";
   const canVoteOnComplaints = user?.role === "RESIDENT";
   const voteMessage = user?.role === "GOV"
     ? "Government accounts cannot vote on violations."
     : "Sign in as a resident to support this issue or flag it as false.";
-  const flowLabel = canSubmitObservation
+  const flowLabel = canSubmitObservation && user?.role === "RESIDENT"
     ? "Resident capture"
+    : canSubmitObservation
+      ? "Anonymous capture"
     : user?.role === "GOV"
       ? "Government repair crew"
       : "Public street view";
@@ -126,37 +127,21 @@ export default async function ReportIssuePage({
         </div>
       </section>
 
-      {canSubmitObservation ? (
-        <LiveObservationForm
-          roadId={road.id}
-          roadName={road.name}
-          roadCenterLat={road.centerLat}
-          roadCenterLng={road.centerLng}
-        />
-      ) : (
-        <section className="rounded-[2rem] border border-slate-200 bg-white/82 p-6 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
-          <p className="eyebrow text-slate-500">Government flow</p>
-          <h3 className="mt-2 font-[family:var(--font-display)] text-3xl font-semibold text-slate-950">
-            {user?.role === "GOV"
-              ? "Government-labelled accounts review requests instead of creating them."
-              : "Sign in as a resident collector to capture violations."}
-          </h3>
-          <div className="mt-5 flex flex-wrap gap-3">
-            <Link
-              href={user?.role === "GOV" ? "/moderation" : "/account"}
-              className="inline-flex items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              {user?.role === "GOV" ? "Review pending violations" : "Sign in as resident"}
-            </Link>
-            <Link
-              href={`/roads/${road.slug}`}
-              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white"
-            >
-              Open full road record
-            </Link>
-          </div>
-        </section>
-      )}
+      <section className="rounded-[2rem] border border-slate-200 bg-white/82 p-6 shadow-[0_22px_60px_-34px_rgba(15,23,42,0.42)] backdrop-blur">
+        <p className="eyebrow text-slate-500">Native capture</p>
+        <h3 className="mt-2 font-[family:var(--font-display)] text-3xl font-semibold text-slate-950">
+          Capture road issues in the RoadWatch mobile app.
+        </h3>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+          The web record remains available for browsing, review, and repair history. Camera and location capture now belong exclusively to the Expo iOS and Android app.
+        </p>
+        <Link
+          href={`/roads/${road.slug}`}
+          className="mt-5 inline-flex items-center justify-center rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+        >
+          Open full road record
+        </Link>
+      </section>
 
       <CollectedViolationList
         violations={road.collectedViolations}

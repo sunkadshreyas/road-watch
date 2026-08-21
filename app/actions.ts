@@ -1,15 +1,17 @@
 'use server';
 
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 
 import { IssueType, IssueVoteKind, RepairStatus, VerificationVerdict } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import {
   clearSessionUser,
+  getSessionUser,
   requireGovUser,
   requireResidentUser,
   requireUser,
@@ -131,6 +133,11 @@ function parseIssueVoteKind(formData: FormData) {
   return value as IssueVoteKind;
 }
 
+function parseRoadRating(formData: FormData) {
+  const value = boundedInteger(formData, "rating", "Road rating", 1, 5);
+  return value;
+}
+
 function parseVerificationVerdict(formData: FormData) {
   const value = requiredString(formData, "verdict", "Verification verdict");
 
@@ -249,6 +256,30 @@ function revalidateRoadViews(slug: string) {
   revalidatePath(`/roads/${slug}`);
 }
 
+const anonymousDeviceCookieName = "roadwatch-anonymous-device";
+const anonymousRateLimitWindowMs = 60 * 60 * 1000;
+const anonymousRateLimitCount = 3;
+
+async function getAnonymousDeviceHash() {
+  const cookieStore = await cookies();
+  let deviceToken = cookieStore.get(anonymousDeviceCookieName)?.value;
+
+  if (!deviceToken) {
+    deviceToken = randomUUID();
+    cookieStore.set(anonymousDeviceCookieName, deviceToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+  }
+
+  return createHash("sha256")
+    .update(`${process.env.ROADWATCH_ANONYMOUS_DEVICE_SALT ?? "local-development"}:${deviceToken}`)
+    .digest("hex");
+}
+
 export async function loginAsDemoUserAction(formData: FormData) {
   const userId = requiredString(formData, "userId", "User");
   const redirectTo = optionalString(formData, "redirectTo") ?? "/account";
@@ -277,7 +308,11 @@ export async function createObservationAction(
   formData: FormData,
 ): Promise<ActionState> {
   try {
-    const sessionUser = await requireResidentUser();
+    const sessionUser = await getSessionUser();
+
+    if (sessionUser?.role === "GOV") {
+      throw new Error("Government accounts cannot submit resident observations.");
+    }
 
     const roadId = requiredString(formData, "roadId", "Road");
     const description = requiredString(formData, "description", "Observation detail");
@@ -307,7 +342,8 @@ export async function createObservationAction(
       throw new Error("Image rejected because a person was detected in frame.");
     }
 
-    const road = await getRoadForMutation(roadId, sessionUser.wardId);
+    const anonymousDeviceHash = sessionUser ? null : await getAnonymousDeviceHash();
+    const road = await getRoadForMutation(roadId, sessionUser?.wardId);
     const proximity = getRoadProximityStatus(gpsPoint, {
       slug: road.slug,
       name: road.name,
@@ -330,31 +366,58 @@ export async function createObservationAction(
       savedImagePath = savedImage.targetPath;
 
       await prisma.$transaction(async (transaction) => {
-        const recentReceipts = await transaction.observationReceipt.findMany({
-          where: {
-            userId: sessionUser.id,
-            observation: {
-              roadId: road.id,
-              createdAt: {
-                gte: new Date(serverReceivedAt.getTime() - 10 * 60 * 1000),
+        const recentReceipts = sessionUser
+          ? await transaction.observationReceipt.findMany({
+              where: {
+                userId: sessionUser.id,
+                observation: {
+                  roadId: road.id,
+                  createdAt: {
+                    gte: new Date(serverReceivedAt.getTime() - 10 * 60 * 1000),
+                  },
+                },
               },
-            },
-          },
-          include: {
-            observation: true,
-          },
-        });
+              include: {
+                observation: true,
+              },
+            })
+          : [];
+        const recentAnonymousSubmissions = anonymousDeviceHash
+          ? await transaction.anonymousSubmission.findMany({
+              where: {
+                deviceHash: anonymousDeviceHash,
+                createdAt: {
+                  gte: new Date(serverReceivedAt.getTime() - anonymousRateLimitWindowMs),
+                },
+              },
+              include: {
+                observation: true,
+              },
+            })
+          : [];
+
+        if (anonymousDeviceHash && recentAnonymousSubmissions.length >= anonymousRateLimitCount) {
+          throw new Error("Anonymous submissions are limited to three per hour on this device.");
+        }
         const isDuplicate = hasRecentDuplicateCollection({
           issueType,
           capturedAt: serverReceivedAt,
           gpsLat: gpsPoint.lat,
           gpsLng: gpsPoint.lng,
-          candidates: recentReceipts.map((receipt) => ({
-            issueType: receipt.observation.issueType,
-            capturedAt: receipt.observation.createdAt,
-            gpsLat: receipt.observation.gpsLat,
-            gpsLng: receipt.observation.gpsLng,
-          })),
+          candidates: [
+            ...recentReceipts.map((receipt) => ({
+              issueType: receipt.observation.issueType,
+              capturedAt: receipt.observation.createdAt,
+              gpsLat: receipt.observation.gpsLat,
+              gpsLng: receipt.observation.gpsLng,
+            })),
+            ...recentAnonymousSubmissions.map((submission) => ({
+              issueType: submission.observation.issueType,
+              capturedAt: submission.observation.createdAt,
+              gpsLat: submission.observation.gpsLat,
+              gpsLng: submission.observation.gpsLng,
+            })),
+          ],
         });
 
         if (isDuplicate) {
@@ -381,17 +444,31 @@ export async function createObservationAction(
             gpsLng: gpsPoint.lng,
             evidencePath: savedImage.evidencePath,
             source: "LIVE_CAMERA",
+            sourceLabel: sessionUser ? "Resident live camera" : "Anonymous live camera",
+            sourceNote: "Submitted through the RoadWatch live capture flow.",
+            submissionDeviceHash: anonymousDeviceHash,
             humanCheckStatus: "MANUAL_REVIEW",
             evidenceCapturedAt,
           },
         });
 
-        await transaction.observationReceipt.create({
-          data: {
-            observationId: observation.id,
-            userId: sessionUser.id,
-          },
-        });
+        if (sessionUser) {
+          await transaction.observationReceipt.create({
+            data: {
+              observationId: observation.id,
+              userId: sessionUser.id,
+            },
+          });
+        } else {
+          await transaction.anonymousSubmission.create({
+            data: {
+              observationId: observation.id,
+              deviceHash: anonymousDeviceHash!,
+              roadId: road.id,
+              issueType,
+            },
+          });
+        }
       });
     } catch (error) {
       if (savedImagePath) {
@@ -410,7 +487,9 @@ export async function createObservationAction(
 
     return {
       status: "success",
-      message: `Violation collected on ${road.name}. It is pending government review, and points are awarded after approval.`,
+      message: sessionUser
+        ? `Violation collected on ${road.name}. It is pending government review, and points are awarded after approval.`
+        : `Anonymous report received for ${road.name}. It is pending government review and will not be associated with an account.`,
     };
   } catch (error) {
     return {
@@ -486,6 +565,45 @@ export async function voteOnObservationAction(formData: FormData) {
   revalidatePath("/collection");
   revalidatePath("/my-complaints");
   revalidatePath("/leaderboard");
+}
+
+export async function rateRoadAction(formData: FormData) {
+  const user = await requireResidentUser();
+  const roadId = requiredString(formData, "roadId", "Road");
+  const rating = parseRoadRating(formData);
+  const road = await getRoadForMutation(roadId, user.wardId);
+  const ratingWindowStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const existingRating = await prisma.roadRating.findUnique({
+    where: {
+      roadId_userId: {
+        roadId: road.id,
+        userId: user.id,
+      },
+    },
+  });
+
+  if (existingRating && existingRating.updatedAt >= ratingWindowStart) {
+    throw new Error("You can rate this road once every 30 days.");
+  }
+
+  await prisma.roadRating.upsert({
+    where: {
+      roadId_userId: {
+        roadId: road.id,
+        userId: user.id,
+      },
+    },
+    create: {
+      roadId: road.id,
+      userId: user.id,
+      value: rating,
+    },
+    update: {
+      value: rating,
+    },
+  });
+
+  revalidateRoadViews(road.slug);
 }
 
 export async function moderateObservationAction(formData: FormData) {

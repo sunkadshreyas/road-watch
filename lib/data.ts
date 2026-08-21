@@ -3,6 +3,7 @@ import {
   type HumanCheckStatus,
   type IssueType,
   type IssueVoteKind,
+  type ObservationSource,
   Prisma,
   type RepairStatus,
   type VerificationVerdict,
@@ -79,6 +80,17 @@ const roadAssetInclude = Prisma.validator<Prisma.RoadAssetInclude>()({
     },
   },
   subscriptions: true,
+  ratings: true,
+  sourceEvents: {
+    orderBy: {
+      observedAt: "desc",
+    },
+  },
+  segments: {
+    orderBy: {
+      sequence: "asc",
+    },
+  },
 });
 
 type RoadAssetRecord = Prisma.RoadAssetGetPayload<{
@@ -139,6 +151,8 @@ export type IssueClusterSummary = {
   likeCount: number;
   dislikeCount: number;
   viewerVote: IssueVoteKind | null;
+  sourceLabels?: string[];
+  sourceCount?: number;
 };
 
 export type CollectedCaptureState =
@@ -165,6 +179,22 @@ export type ConditionPoint = {
   score: number;
 };
 
+export type ConditionBreakdown = {
+  baseline: number;
+  distressPenalty: number;
+  repairRecovery: number;
+  verificationAdjustment: number;
+  score: number;
+  explanation: string;
+};
+
+export type CommuterRating = {
+  average: number | null;
+  count: number;
+  distribution: Record<1 | 2 | 3 | 4 | 5, number>;
+  viewerRating: number | null;
+};
+
 export type RoadDetail = {
   id: string;
   slug: string;
@@ -185,6 +215,30 @@ export type RoadDetail = {
     coordinates: Array<[number, number]>;
   };
   conditionScore: number;
+  conditionBreakdown: ConditionBreakdown;
+  dataConfidence: {
+    level: "low" | "medium" | "high";
+    independentSources: number;
+    clearedObservations: number;
+    importedSourceEvents: number;
+    explanation: string;
+  };
+  commuterRating: CommuterRating;
+  authority: {
+    label: string;
+    source: string | null;
+  };
+  sourceEvents: Array<{
+    id: string;
+    source: ObservationSource;
+    sourceLabel: string;
+    sourceReference: string | null;
+    title: string;
+    description: string;
+    observedAt: string;
+    segmentSequence: number | null;
+  }>;
+  segmentCount: number;
   budgetNeedInr: number;
   priorityScore: number;
   verifiedFixRate: number;
@@ -217,6 +271,9 @@ export type RoadDetail = {
     dislikeCount: number;
     viewerVote: IssueVoteKind | null;
     isOwnCollection: boolean;
+    source: string;
+    sourceLabel: string;
+    sourceReference: string | null;
   }>;
   conditionHistory: ConditionPoint[];
   timeline: RoadTimelineItem[];
@@ -608,6 +665,102 @@ function buildConditionHistory(road: RoadAssetRecord) {
   });
 }
 
+function buildConditionBreakdown(
+  road: RoadAssetRecord,
+  conditionHistory: ConditionPoint[],
+): ConditionBreakdown {
+  const baseline = clamp(92 - (road.importanceScore - 1) * 2, 40, 96);
+  const distressPenalty = road.observations.reduce(
+    (total, observation) =>
+      total + Math.abs(
+        conditionDeltaFromObservation(
+          observation.severityScore,
+          observation.impactScore,
+          observation.issueType,
+        ),
+      ),
+    0,
+  );
+  const repairRecovery = road.repairs.reduce(
+    (total, repair) => total + conditionDeltaFromRepair(repair.status, road.importanceScore),
+    0,
+  );
+  const verificationAdjustment = road.repairs.reduce(
+    (total, repair) =>
+      total + repair.verifications.reduce(
+        (verificationTotal, verification) =>
+          verificationTotal + conditionDeltaFromVerification(verification.verdict),
+        0,
+      ),
+    0,
+  );
+  const score = conditionHistory.at(-1)?.score ?? baseline;
+
+  return {
+    baseline,
+    distressPenalty,
+    repairRecovery,
+    verificationAdjustment,
+    score,
+    explanation:
+      "The score starts from the road baseline, subtracts cleared distress observations, then applies repair and verification updates. It is an explainable RoadWatch heuristic, not a PCI measurement.",
+  };
+}
+
+function buildDataConfidence(
+  road: RoadAssetRecord,
+  importedSourceEvents: RoadAssetRecord["sourceEvents"],
+) {
+  const independentSources = new Set([
+    ...road.observations.map((observation) => observation.source),
+    ...importedSourceEvents.map((event) => event.source),
+  ]).size;
+  const clearedObservations = road.observations.length;
+  const importedEventCount = importedSourceEvents.length;
+  const totalEvidenceItems = clearedObservations + importedEventCount;
+  const level =
+    independentSources >= 3 || (independentSources >= 2 && totalEvidenceItems >= 3)
+      ? "high"
+      : independentSources >= 2 || totalEvidenceItems >= 2
+        ? "medium"
+        : "low";
+
+  return {
+    level,
+    independentSources,
+    clearedObservations,
+    importedSourceEvents: importedEventCount,
+    explanation:
+      independentSources > 1
+        ? `${independentSources} independent evidence sources currently support this record, including ${importedEventCount} imported event${importedEventCount === 1 ? "" : "s"}.`
+        : "This record currently relies on one evidence source; treat the score as provisional.",
+  } as const;
+}
+
+function buildCommuterRating(road: RoadAssetRecord, viewerUserId?: string | null): CommuterRating {
+  const distribution: Record<1 | 2 | 3 | 4 | 5, number> = {
+    1: 0,
+    2: 0,
+    3: 0,
+    4: 0,
+    5: 0,
+  };
+
+  for (const rating of road.ratings) {
+    if (rating.value >= 1 && rating.value <= 5) {
+      distribution[rating.value as 1 | 2 | 3 | 4 | 5] += 1;
+    }
+  }
+
+  const count = road.ratings.length;
+  return {
+    average: count ? Math.round((road.ratings.reduce((total, rating) => total + rating.value, 0) / count) * 10) / 10 : null,
+    count,
+    distribution,
+    viewerRating: road.ratings.find((rating) => rating.userId === viewerUserId)?.value ?? null,
+  };
+}
+
 function buildCommunityBuckets(road: RoadAssetRecord): CommunityBuckets {
   const buckets: CommunityBuckets = {
     DISCUSSION: [],
@@ -752,6 +905,10 @@ function buildIssueClusters(road: RoadAssetRecord, viewerUserId?: string | null)
       likeCount: votes.filter((vote) => vote.kind === "LIKE").length,
       dislikeCount: votes.filter((vote) => vote.kind === "DISLIKE").length,
       viewerVote: votes.find((vote) => vote.userId === viewerUserId)?.kind ?? null,
+      sourceLabels: [
+        ...new Set(observations.map((observation) => observation.sourceLabel ?? observation.source)),
+      ],
+      sourceCount: new Set(observations.map((observation) => observation.source)).size,
     });
   }
 
@@ -862,6 +1019,7 @@ function buildRoadDetail(
   const issueClusters = buildIssueClusters(clearedRoad, viewerUserId);
   const clustersByKey = new Map(issueClusters.map((cluster) => [cluster.clusterKey, cluster]));
   const conditionHistory = buildConditionHistory(clearedRoad);
+  const conditionBreakdown = buildConditionBreakdown(clearedRoad, conditionHistory);
   const openIssues = issueClusters.filter((cluster) => cluster.state === "open");
   const monitoringIssues = issueClusters.filter(
     (cluster) => cluster.state === "monitoring",
@@ -886,8 +1044,26 @@ function buildRoadDetail(
     centerLat: road.centerLat,
     centerLng: road.centerLng,
     geometry,
-    conditionScore:
-      conditionHistory.at(-1)?.score ?? clamp(92 - road.importanceScore * 2, 40, 96),
+    conditionScore: conditionBreakdown.score,
+    conditionBreakdown,
+    dataConfidence: buildDataConfidence(clearedRoad, road.sourceEvents),
+    commuterRating: buildCommuterRating(road, viewerUserId),
+    authority: {
+      label: road.ward.authorityLabel ?? road.ward.name,
+      source: road.ward.authoritySource,
+    },
+    sourceEvents: road.sourceEvents.map((event) => ({
+      id: event.id,
+      source: event.source,
+      sourceLabel: event.sourceLabel,
+      sourceReference: event.sourceReference,
+      title: event.title,
+      description: event.description,
+      observedAt: event.observedAt.toISOString(),
+      segmentSequence:
+        road.segments.find((segment) => segment.id === event.segmentId)?.sequence ?? null,
+    })),
+    segmentCount: road.segments.length,
     budgetNeedInr: openIssues.reduce(
       (sum, cluster) => sum + cluster.estimatedCostInr,
       0,
@@ -939,6 +1115,9 @@ function buildRoadDetail(
           dislikeCount: observation.votes.filter((vote) => vote.kind === "DISLIKE").length,
           viewerVote: observation.votes.find((vote) => vote.userId === viewerUserId)?.kind ?? null,
           isOwnCollection: ownerUserId === viewerUserId,
+          source: observation.source,
+          sourceLabel: observation.sourceLabel ?? observation.source,
+          sourceReference: observation.sourceReference,
         };
       })
       .sort(

@@ -77,7 +77,12 @@ export function PublicRecordList({
                     <span>updated {formatDate(cluster.lastUpdatedAt)}</span>
                     <span>{cluster.likeCount} legacy cluster likes</span>
                     <span>{cluster.dislikeCount} legacy cluster dislikes</span>
+                    <span>{cluster.sourceCount ?? 0} evidence source{cluster.sourceCount === 1 ? "" : "s"}</span>
                   </div>
+
+                  <p className="mt-3 text-xs text-slate-500">
+                    Sources: {(cluster.sourceLabels ?? []).join(", ") || "Not specified"}
+                  </p>
 
                   <p className="mt-3 text-xs text-slate-500">
                     {cluster.latestVerificationLabel ?? "No public repair verification yet"}

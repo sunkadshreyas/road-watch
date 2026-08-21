@@ -10,8 +10,14 @@ test("API collection awards points only to approved captures", () => {
       observation: {
         id: "observation-1",
         issueType: "POTHOLE",
+        description: "Pothole beside the bus stop.",
+        evidencePath: "/uploads/seed/pothole.jpg",
+        evidenceCapturedAt: new Date("2026-08-01T09:00:00.000Z"),
+        gpsLat: 12.9756,
+        gpsLng: 77.6428,
         humanCheckStatus: "CLEARED",
         road: { name: "100 Feet Road" },
+        votes: [{ kind: "LIKE" }],
       },
     },
     {
@@ -19,8 +25,14 @@ test("API collection awards points only to approved captures", () => {
       observation: {
         id: "observation-2",
         issueType: "BROKEN_FOOTPATH",
+        description: "Broken paving slabs.",
+        evidencePath: "/uploads/seed/footpath.jpg",
+        evidenceCapturedAt: new Date("2026-08-02T09:00:00.000Z"),
+        gpsLat: 12.9746,
+        gpsLng: 77.6453,
         humanCheckStatus: "MANUAL_REVIEW",
         road: { name: "CMH Road" },
+        votes: [{ kind: "DISLIKE" }],
       },
     },
   ]);

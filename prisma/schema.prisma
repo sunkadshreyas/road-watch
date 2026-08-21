@@ -71,6 +71,8 @@ model Ward {
   boundaryGeoJson String
   centerLat       Float
   centerLng       Float
+  authorityLabel  String?
+  authoritySource String?
   roads           RoadAsset[]
   users           User[]
   createdAt       DateTime    @default(now())
@@ -92,6 +94,7 @@ model User {
   repairVerifications RepairVerification[]
   issueClusterVotes   IssueClusterVote[]
   observationVotes    ObservationVote[]
+  roadRatings         RoadRating[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 }
@@ -111,10 +114,13 @@ model RoadAsset {
   lengthMeters      Int
   importanceScore   Int
   surfaceLabel      String
+  segments          RoadSegment[]
+  sourceEvents      SourceEvent[]
   observations      Observation[]
   repairs           RepairEvent[]
   communityEntries  CommunityEntry[]
   subscriptions     Subscription[]
+  ratings           RoadRating[]
   issueClusterVotes IssueClusterVote[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
@@ -123,26 +129,78 @@ model RoadAsset {
 }
 
 model Observation {
-  id                 String               @id @default(cuid())
-  roadId             String
-  road               RoadAsset            @relation(fields: [roadId], references: [id], onDelete: Cascade)
-  issueType          IssueType
-  issueClusterKey    String
-  description        String
-  severityScore      Int
-  impactScore        Int
-  gpsLat             Float?
-  gpsLng             Float?
-  evidencePath       String
-  evidenceCapturedAt DateTime
-  source             ObservationSource    @default(LIVE_CAMERA)
-  humanCheckStatus   HumanCheckStatus     @default(MANUAL_REVIEW)
-  receipts           ObservationReceipt[]
-  votes              ObservationVote[]
-  moderationAudits   ModerationAudit[]
-  createdAt          DateTime             @default(now())
+  id                   String               @id @default(cuid())
+  roadId               String
+  road                 RoadAsset            @relation(fields: [roadId], references: [id], onDelete: Cascade)
+  segmentId            String?
+  segment              RoadSegment?         @relation(fields: [segmentId], references: [id], onDelete: SetNull)
+  issueType            IssueType
+  issueClusterKey      String
+  description          String
+  severityScore        Int
+  impactScore          Int
+  gpsLat               Float?
+  gpsLng               Float?
+  evidencePath         String
+  evidenceCapturedAt   DateTime
+  source               ObservationSource    @default(LIVE_CAMERA)
+  sourceLabel          String?
+  sourceReference      String?
+  sourceNote           String?
+  submissionDeviceHash String?
+  humanCheckStatus     HumanCheckStatus     @default(MANUAL_REVIEW)
+  receipts             ObservationReceipt[]
+  votes                ObservationVote[]
+  moderationAudits     ModerationAudit[]
+  anonymousSubmission  AnonymousSubmission?
+  createdAt            DateTime             @default(now())
 
   @@index([roadId, issueClusterKey])
+  @@index([segmentId, createdAt])
+}
+
+model RoadSegment {
+  id              String        @id @default(cuid())
+  roadId          String
+  road            RoadAsset     @relation(fields: [roadId], references: [id], onDelete: Cascade)
+  sequence        Int
+  geometryGeoJson String
+  centerLat       Float
+  centerLng       Float
+  lengthMeters    Int
+  observations    Observation[]
+  sourceEvents    SourceEvent[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([roadId, sequence])
+  @@index([roadId, centerLat, centerLng])
+}
+
+model SourceEvent {
+  id              String            @id @default(cuid())
+  roadId          String
+  road            RoadAsset         @relation(fields: [roadId], references: [id], onDelete: Cascade)
+  segmentId       String?
+  segment         RoadSegment?      @relation(fields: [segmentId], references: [id], onDelete: SetNull)
+  source          ObservationSource
+  sourceKey       String
+  sourceLabel     String
+  sourceReference String?
+  sourceNote      String?
+  issueType       IssueType?
+  title           String
+  description     String
+  latitude        Float
+  longitude       Float
+  observedAt      DateTime
+  payloadJson     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([source, sourceKey])
+  @@index([roadId, observedAt])
+  @@index([segmentId, observedAt])
 }
 
 model ModerationAudit {
@@ -168,6 +226,33 @@ model ObservationReceipt {
   createdAt     DateTime    @default(now())
 
   @@index([userId, createdAt])
+}
+
+model AnonymousSubmission {
+  id            String      @id @default(cuid())
+  observationId String      @unique
+  observation   Observation @relation(fields: [observationId], references: [id], onDelete: Cascade)
+  deviceHash    String
+  roadId        String
+  issueType     IssueType
+  createdAt     DateTime    @default(now())
+
+  @@index([deviceHash, createdAt])
+  @@index([roadId, createdAt])
+}
+
+model RoadRating {
+  id        String    @id @default(cuid())
+  roadId    String
+  road      RoadAsset @relation(fields: [roadId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  value     Int
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([roadId, userId])
+  @@index([roadId, value])
 }
 
 model RepairEvent {

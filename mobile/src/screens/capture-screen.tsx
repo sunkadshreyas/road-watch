@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Device from "expo-device";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as Location from "expo-location";
@@ -8,6 +9,10 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PrimaryButton } from "@/components/primary-button";
+import {
+  captureControlsBottomPadding,
+  resolveCameraRuntime,
+} from "@/lib/camera-runtime";
 import { createIdempotencyKey, newQueuedCapture } from "@/lib/offline-queue";
 import { appendCapture, persistEvidencePhoto } from "@/lib/queue-storage";
 import { colors } from "@/theme/colors";
@@ -37,6 +42,80 @@ function vibrate(kind: "selection" | "success") {
     : Haptics.selectionAsync();
 }
 
+function SimulatorCameraPreview() {
+  return (
+    <View
+      accessibilityLabel="Simulated road camera preview"
+      pointerEvents="none"
+      style={{ flex: 1, overflow: "hidden", backgroundColor: "#86c9d4" }}
+    >
+      <View
+        style={{
+          position: "absolute",
+          top: "34%",
+          right: 0,
+          bottom: 0,
+          left: 0,
+          backgroundColor: "#45545c",
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          top: "42%",
+          right: 0,
+          left: 0,
+          height: 18,
+          backgroundColor: "#d5d0ba",
+        }}
+      />
+      {[0, 1, 2, 3].map((marker) => (
+        <View
+          key={marker}
+          style={{
+            position: "absolute",
+            top: `${50 + marker * 13}%`,
+            left: "48%",
+            width: 12 + marker * 4,
+            height: 34 + marker * 12,
+            borderRadius: 6,
+            backgroundColor: "#f7e36d",
+          }}
+        />
+      ))}
+      <View
+        style={{
+          position: "absolute",
+          right: "16%",
+          bottom: "20%",
+          width: 118,
+          height: 58,
+          borderRadius: 999,
+          backgroundColor: "#202a2e",
+          borderWidth: 8,
+          borderColor: "#34434a",
+          transform: [{ rotate: "-8deg" }],
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          top: "38%",
+          left: 24,
+          borderRadius: 999,
+          backgroundColor: "rgba(7, 20, 31, 0.78)",
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+        }}
+      >
+        <Text style={{ color: colors.ink, fontWeight: "800", letterSpacing: 0.8 }}>
+          SIMULATOR CAMERA
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export function CaptureScreen() {
   const cameraRef = useRef<CameraView>(null);
   const insets = useSafeAreaInsets();
@@ -52,6 +131,12 @@ export function CaptureScreen() {
   const [message, setMessage] = useState(
     "Stop in a safe pedestrian area before collecting an issue.",
   );
+  const cameraRuntime = resolveCameraRuntime({
+    demoMode: process.env.EXPO_PUBLIC_DEMO_MODE,
+    simulatorCamera: process.env.EXPO_PUBLIC_SIMULATOR_CAMERA,
+    nativeCameraReady: cameraReady,
+    isDevice: Device.isDevice,
+  });
 
   const permissionsReady =
     cameraPermission?.granted === true && locationPermission?.granted === true;
@@ -70,7 +155,7 @@ export function CaptureScreen() {
   }
 
   async function takePicture() {
-    if (!cameraRef.current || !cameraReady || !stationary) {
+    if (!cameraRef.current || !cameraRuntime.captureReady || !stationary) {
       return;
     }
 
@@ -142,6 +227,11 @@ export function CaptureScreen() {
     }
   }
 
+  function retakePicture() {
+    setCapturedFrame(null);
+    setMessage("Ready for another safe capture.");
+  }
+
   if (!permissionsReady) {
     return (
       <ScrollView
@@ -193,7 +283,7 @@ export function CaptureScreen() {
             gap: 12,
             paddingTop: insets.top + 16,
             paddingHorizontal: 18,
-            paddingBottom: insets.bottom + 18,
+            paddingBottom: captureControlsBottomPadding(insets.bottom),
           }}
         >
           <View
@@ -249,7 +339,7 @@ export function CaptureScreen() {
                 <PrimaryButton
                   label="Retake"
                   variant="secondary"
-                  onPress={() => setCapturedFrame(null)}
+                  onPress={retakePicture}
                   disabled={busy}
                 />
               </View>
@@ -265,11 +355,16 @@ export function CaptureScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: "black" }}>
+      {cameraRuntime.simulated ? <SimulatorCameraPreview /> : null}
       <CameraView
         ref={cameraRef}
         facing="back"
         onCameraReady={() => setCameraReady(true)}
-        style={{ flex: 1 }}
+        style={
+          cameraRuntime.simulated
+            ? { position: "absolute", width: 1, height: 1, opacity: 0 }
+            : { flex: 1 }
+        }
       />
       <View
         pointerEvents="box-none"
@@ -279,7 +374,7 @@ export function CaptureScreen() {
           justifyContent: "space-between",
           paddingTop: insets.top + 14,
           paddingHorizontal: 18,
-          paddingBottom: insets.bottom + 18,
+          paddingBottom: captureControlsBottomPadding(insets.bottom),
         }}
       >
         <View
@@ -322,7 +417,7 @@ export function CaptureScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Capture road issue"
-            disabled={!cameraReady || !stationary || busy}
+            disabled={!cameraRuntime.captureReady || !stationary || busy}
             onPress={takePicture}
             style={({ pressed }) => ({
               width: 82,
@@ -331,7 +426,12 @@ export function CaptureScreen() {
               borderWidth: 7,
               borderColor: "white",
               backgroundColor: colors.accent,
-              opacity: !cameraReady || !stationary || busy ? 0.4 : pressed ? 0.75 : 1,
+              opacity:
+                !cameraRuntime.captureReady || !stationary || busy
+                  ? 0.4
+                  : pressed
+                    ? 0.75
+                    : 1,
             })}
           />
         </View>

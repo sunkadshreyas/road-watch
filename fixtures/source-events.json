@@ -1,0 +1,31 @@
+[
+  {
+    "roadSlug": "100-feet-road",
+    "source": "WEB_SCRAPE",
+    "sourceKey": "bbmp-demo-complaint-100-feet-road-001",
+    "sourceLabel": "BBMP grievance fixture",
+    "sourceReference": "https://example.invalid/bbmp/complaints/001",
+    "sourceNote": "Development fixture standing in for an approved municipal source adapter.",
+    "issueType": "POTHOLE",
+    "title": "Bus bay pothole complaint",
+    "description": "A public complaint reports a reopened pothole beside the bus bay.",
+    "latitude": 12.9757,
+    "longitude": 77.643,
+    "observedAt": "2026-08-01T09:00:00.000Z",
+    "payload": { "status": "open", "fixture": true }
+  },
+  {
+    "roadSlug": "100-feet-road",
+    "source": "SATELLITE",
+    "sourceKey": "sentinel-demo-100-feet-road-2026-08",
+    "sourceLabel": "Sentinel-2 development fixture",
+    "sourceReference": "https://example.invalid/sentinel/demo-2026-08",
+    "sourceNote": "Development fixture standing in for a satellite change-detection adapter.",
+    "title": "Broad surface change detected",
+    "description": "A broad surface-change signal was detected near the bus bay approach.",
+    "latitude": 12.9757,
+    "longitude": 77.643,
+    "observedAt": "2026-08-05T09:00:00.000Z",
+    "payload": { "changeType": "surface-change", "fixture": true }
+  }
+]
